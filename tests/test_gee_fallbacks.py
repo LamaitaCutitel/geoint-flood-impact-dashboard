@@ -5,7 +5,7 @@ from src.gee.sentinel1_collection import count_scenes
 
 
 def test_initialize_earth_engine_without_project_id(monkeypatch):
-    monkeypatch.delenv("GEE_PROJECT_ID", raising=False)
+    monkeypatch.setenv("GEE_PROJECT_ID", "")
     result = initialize_earth_engine(interactive=False)
     assert result.available is False
     assert "GEE_PROJECT_ID" in result.message

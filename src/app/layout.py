@@ -15,17 +15,17 @@ LAYER_OPTIONS = [
 ]
 
 COMPARISON_PRESETS = {
-    "Before vs After SAR": ("Sentinel-1 SAR before", "Sentinel-1 SAR after"),
-    "After SAR vs Detected Flood Extent": (
+    "Before SAR vs After SAR": ("Sentinel-1 SAR before", "Sentinel-1 SAR after"),
+    "After SAR vs Extindere detectata": (
         "Sentinel-1 SAR after",
         "detected flood extent",
     ),
-    "Permanent Water vs Temporary Flood Extent": (
+    "Apa permanenta vs Extindere temporara": (
         "permanent water",
         "detected flood extent",
     ),
-    "Land Cover vs Detected Flood Extent": ("land cover", "detected flood extent"),
-    "Sentinel-2 RGB vs Detected Flood Extent": (
+    "Land cover vs Extindere detectata": ("land cover", "detected flood extent"),
+    "Sentinel-2 RGB vs Extindere detectata": (
         "Sentinel-2 RGB",
         "detected flood extent",
     ),
@@ -34,71 +34,180 @@ COMPARISON_PRESETS = {
 
 def configure_page(st) -> None:
     st.set_page_config(
-        page_title="GEOINT Flood Impact Dashboard",
+        page_title="Dashboard GEOINT pentru inundatii",
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.title("GEOINT Flood Impact Dashboard")
-    st.caption("produs GEOINT preliminar de suport decizional")
+    st.title("Dashboard GEOINT pentru analiza preliminara a inundatiilor")
+    st.caption(
+        "Analiza Sentinel-1 SAR, procesare cloud in Google Earth Engine si evaluarea "
+        "tipurilor de teren intersectate."
+    )
 
 
-def sidebar_parameters(st) -> AnalysisParameters:
+def render_usage(st) -> None:
+    with st.expander("Cum se foloseste aplicatia", expanded=True):
+        st.markdown(
+            """
+1. Selecteaza judetul.
+2. Verifica perioadele inainte si dupa eveniment.
+3. Ajusteaza parametrii doar daca este necesar.
+4. Apasa `Ruleaza analiza SAR`.
+5. Urmareste jurnalul live si exploreaza layerele rezultate.
+"""
+        )
+
+
+def sidebar_parameters(
+    st,
+    county_names: list[str],
+    selected_county: str,
+    county_geometry: dict | None,
+    county_bbox: list[float],
+    gee_available: bool,
+) -> tuple[AnalysisParameters, bool]:
     with st.sidebar:
-        st.header("Zona analizata")
-        preset = st.selectbox("Preset", [GALATI_PRESET["name"], "Custom bounding box"])
-        bbox = list(GALATI_PRESET["bbox"])
-        if preset == "Custom bounding box":
-            west = st.number_input("West", value=float(bbox[0]), format="%.5f")
-            south = st.number_input("South", value=float(bbox[1]), format="%.5f")
-            east = st.number_input("East", value=float(bbox[2]), format="%.5f")
-            north = st.number_input("North", value=float(bbox[3]), format="%.5f")
-            bbox = [west, south, east, north]
+        st.header("Configurare analiza")
 
-        st.header("Perioade")
-        before_start = st.date_input("before_start_date", GALATI_PRESET["before_start_date"])
-        before_end = st.date_input("before_end_date", GALATI_PRESET["before_end_date"])
-        after_start = st.date_input("after_start_date", GALATI_PRESET["after_start_date"])
-        after_end = st.date_input("after_end_date", GALATI_PRESET["after_end_date"])
+        with st.expander("A. Zona de analiza", expanded=True):
+            if selected_county not in county_names and county_names:
+                selected_county = county_names[0]
+            county_index = county_names.index(selected_county) if selected_county in county_names else 0
+            county_name = st.selectbox(
+                "Selecteaza judetul",
+                county_names or ["GeoJSON indisponibil"],
+                index=county_index,
+                help="Judetul selectat este folosit ca AOI pentru analiza SAR.",
+            )
+            st.session_state.selected_county = county_name
+            st.selectbox(
+                "Preset eveniment",
+                ["Galati - inundatii septembrie 2024"],
+                help="Preset academic pentru evenimentul din septembrie 2024.",
+            )
+            st.info(f"AOI curent: {county_name}. Harta se actualizeaza fara a porni analiza.")
 
-        st.header("Sentinel-1")
-        polarization = st.radio("Polarization", ["VH", "VV"], horizontal=True)
-        orbit_pass = st.selectbox("Orbit pass", ["BOTH", "ASCENDING", "DESCENDING"])
-        smoothing_radius = st.slider("Smoothing radius", 0, 100, 30, 5)
-        threshold = st.slider("SAR threshold", 0.5, 3.0, 1.25, 0.05)
-        minimum_connected = st.slider("Minimum connected pixels", 0, 50, 8, 1)
-        mask_permanent = st.toggle("Permanent water masking", value=True)
+        with st.form("analysis_parameters_form"):
+            with st.expander("B. Perioade analizate", expanded=True):
+                before_start = st.date_input(
+                    "Data inceput before",
+                    GALATI_PRESET["before_start_date"],
+                    help="Perioada before reprezinta intervalul de referinta anterior evenimentului.",
+                )
+                before_end = st.date_input(
+                    "Data sfarsit before",
+                    GALATI_PRESET["before_end_date"],
+                    help="Perioada before reprezinta intervalul de referinta anterior evenimentului.",
+                )
+                after_start = st.date_input(
+                    "Data inceput after",
+                    GALATI_PRESET["after_start_date"],
+                    help="Perioada after reprezinta intervalul in care este analizata extinderea preliminara a apei.",
+                )
+                after_end = st.date_input(
+                    "Data sfarsit after",
+                    GALATI_PRESET["after_end_date"],
+                    help="Perioada after reprezinta intervalul in care este analizata extinderea preliminara a apei.",
+                )
 
-        st.header("Performanta")
-        profile = st.selectbox(
-            "Analysis profile", ["Rapid preview", "Standard", "Detailed export"], index=1
-        )
-        default_scale = PROFILE_SCALES[profile]
-        scale = st.select_slider(
-            "Scale",
-            options=[10, 20, 30, 40, 50],
-            value=default_scale,
-        )
+            with st.expander("C. Parametri Sentinel-1 SAR", expanded=True):
+                polarization = st.radio(
+                    "Polarizare",
+                    ["VH", "VV"],
+                    horizontal=True,
+                    help="VH este recomandata implicit pentru evidentierea schimbarilor asociate apei. VV poate fi testata comparativ.",
+                )
+                orbit_pass = st.selectbox(
+                    "Orbit pass",
+                    ["BOTH", "ASCENDING", "DESCENDING"],
+                    help="Selecteaza directia orbitei Sentinel-1. Pentru comparatii robuste, imaginile before si after trebuie sa fie compatibile. Foloseste BOTH doar pentru explorare.",
+                )
+                threshold = st.slider(
+                    "Prag SAR",
+                    0.5,
+                    3.0,
+                    1.25,
+                    0.05,
+                    help="Controleaza sensibilitatea detectiei. Un prag mai permisiv poate detecta mai multe zone, dar poate creste numarul de rezultate false pozitive.",
+                )
+                smoothing_radius = st.slider(
+                    "Smoothing radius",
+                    0,
+                    100,
+                    30,
+                    5,
+                    help="Reduce zgomotul speckle specific imaginilor radar. O valoare prea mare poate elimina detalii locale.",
+                )
+                minimum_connected = st.slider(
+                    "Minimum connected pixels",
+                    0,
+                    50,
+                    8,
+                    1,
+                    help="Elimina grupurile foarte mici de pixeli izolati pentru a reduce zgomotul.",
+                )
+                mask_permanent = st.toggle(
+                    "Permanent water masking",
+                    value=True,
+                    help="Elimina corpurile de apa permanente folosind JRC Global Surface Water, astfel incat rezultatul sa evidentieze mai bine apa temporara.",
+                )
 
-        st.header("Layere auxiliare")
-        show_permanent = st.checkbox("show permanent water", True)
-        show_land = st.checkbox("show land cover", True)
-        show_s2 = st.checkbox("show Sentinel-2 RGB", False)
-        show_before = st.checkbox("show SAR before", True)
-        show_after = st.checkbox("show SAR after", True)
-        show_change = st.checkbox("show SAR change", True)
-        show_flood = st.checkbox("show detected flood extent", True)
+            with st.expander("D. Performanta", expanded=True):
+                profile = st.selectbox(
+                    "Profil analiza",
+                    ["Rapid preview", "Standard", "Detailed"],
+                    index=1,
+                    help="Rapid preview foloseste o scara mai redusa pentru rezultate rapide. Standard este recomandat pentru majoritatea analizelor. Detailed este destinat exporturilor si poate necesita mai mult timp.",
+                )
+                scale_key = "Detailed export" if profile == "Detailed" else profile
+                scale = st.select_slider(
+                    "Scara",
+                    options=[10, 20, 30, 40, 50],
+                    value=PROFILE_SCALES[scale_key],
+                    help="Rezolutia de calcul trimisa catre Google Earth Engine.",
+                )
 
-        st.header("Comparatie")
-        comparison = st.selectbox("Preset comparatie", list(COMPARISON_PRESETS))
-        left_default, right_default = COMPARISON_PRESETS[comparison]
-        left_layer = st.selectbox("Layer stanga", LAYER_OPTIONS, index=LAYER_OPTIONS.index(left_default))
-        right_layer = st.selectbox("Layer dreapta", LAYER_OPTIONS, index=LAYER_OPTIONS.index(right_default))
+            with st.expander("E. Layere", expanded=False):
+                show_before = st.checkbox("SAR before", True)
+                show_after = st.checkbox("SAR after", True)
+                show_change = st.checkbox("SAR change", True)
+                show_flood = st.checkbox("Extindere detectata", True)
+                show_permanent = st.checkbox("Apa permanenta", True)
+                show_land = st.checkbox("Dynamic World", True)
+                show_s2 = st.checkbox("Sentinel-2 RGB auxiliar", False)
 
-        run_analysis = st.button("Run SAR Flood Analysis", type="primary", use_container_width=True)
+            with st.expander("Comparatie vizuala", expanded=False):
+                comparison = st.selectbox("Comparatie vizuala", list(COMPARISON_PRESETS))
+                left_default, right_default = COMPARISON_PRESETS[comparison]
+                left_layer = st.selectbox(
+                    "Layer stanga",
+                    LAYER_OPTIONS,
+                    index=LAYER_OPTIONS.index(left_default),
+                )
+                right_layer = st.selectbox(
+                    "Layer dreapta",
+                    LAYER_OPTIONS,
+                    index=LAYER_OPTIONS.index(right_default),
+                )
+
+            run_analysis = st.form_submit_button(
+                "Ruleaza analiza SAR",
+                type="primary",
+                use_container_width=True,
+                disabled=not gee_available or not county_geometry,
+            )
+            if not gee_available:
+                st.warning(
+                    "Google Earth Engine nu este initializat. Ruleaza o singura data: "
+                    "python -m src.gee.gee_auth, apoi reporneste aplicatia. Verifica si "
+                    "GEE_PROJECT_ID in fisierul .env."
+                )
 
     params = AnalysisParameters(
-        aoi_name=GALATI_PRESET["name"] if preset == GALATI_PRESET["name"] else "custom AOI",
-        bbox=bbox,
+        aoi_name=county_name,
+        county_name=county_name,
+        county_geometry=county_geometry,
+        bbox=county_bbox,
         before_start_date=before_start,
         before_end_date=before_end,
         after_start_date=after_start,
@@ -122,4 +231,6 @@ def sidebar_parameters(st) -> AnalysisParameters:
         left_layer=left_layer,
         right_layer=right_layer,
     )
+    if run_analysis:
+        st.session_state.last_analysis_params = params.as_dict()
     return params, run_analysis

@@ -9,6 +9,8 @@ from config.settings import GALATI_PRESET, PROFILE_SCALES
 @dataclass
 class AnalysisParameters:
     aoi_name: str = GALATI_PRESET["name"]
+    county_name: str = "Galati"
+    county_geometry: dict | None = None
     bbox: list[float] = field(default_factory=lambda: list(GALATI_PRESET["bbox"]))
     event_date: date = GALATI_PRESET["event_date"]
     before_start_date: date = GALATI_PRESET["before_start_date"]
@@ -30,7 +32,7 @@ class AnalysisParameters:
     show_sar_after: bool = True
     show_sar_change: bool = True
     show_detected_flood_extent: bool = True
-    comparison_preset: str = "Before vs After SAR"
+    comparison_preset: str = "Before SAR vs After SAR"
     left_layer: str = "Sentinel-1 SAR before"
     right_layer: str = "Sentinel-1 SAR after"
 

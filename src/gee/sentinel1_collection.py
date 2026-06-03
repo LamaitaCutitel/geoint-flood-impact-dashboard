@@ -10,6 +10,12 @@ def build_aoi(ee: Any, bbox: list[float]) -> Any:
     return ee.Geometry.Rectangle(bbox)
 
 
+def build_aoi_from_geometry(ee: Any, geometry: dict[str, Any] | None, bbox: list[float]) -> Any:
+    if geometry:
+        return ee.Geometry(geometry)
+    return build_aoi(ee, bbox)
+
+
 def get_sentinel1_collection(
     ee: Any,
     aoi: Any,

@@ -24,3 +24,17 @@ GEE_PROJECT_ID=your-google-cloud-project-id
 
 Nu commit-uiti `.env`. Autentificarea Earth Engine se face o singura data pe fiecare
 PC sau VM.
+
+## Verificare pornire
+
+La deschidere trebuie sa apara imediat:
+
+- titlul aplicatiei;
+- harta Romaniei cu judetele;
+- dropdown-ul `Selecteaza judetul`, implicit `Galati`;
+- sectiunea `Status servicii`;
+- `Jurnal live de initializare si procesare`;
+- formularul cu butonul `Ruleaza analiza SAR`.
+
+Daca Google Earth Engine nu este initializat, aplicatia ramane utilizabila pentru
+harta administrativa si afiseaza pasii necesari pentru autentificare.

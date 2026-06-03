@@ -27,11 +27,16 @@ analize rapide.
 - `JRC/GSW1_4/GlobalSurfaceWater` pentru apa permanenta.
 - `GOOGLE/DYNAMICWORLD/V1` pentru terenuri intersectate.
 - `COPERNICUS/S2_SR_HARMONIZED` pentru context RGB optional.
+- Eurostat GISCO NUTS 2024 level 3 pentru limitele administrative ale judetelor
+  Romaniei, salvat local in `data/boundaries/romania_counties.geojson`.
 
 ## Functionalitati
 
 - Preset `Galati - September 2024 Floods`.
-- Bounding box custom.
+- Harta initiala a Romaniei disponibila imediat, chiar fara Google Earth Engine.
+- Dropdown pentru selectarea judetului, implicit `Galati`.
+- Evidentierea judetului selectat, tooltip, popup si zoom automat pe bounding box.
+- Status servicii si jurnal live de initializare vizibile la pornire.
 - Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag, pixeli conectati.
 - Profile de analiza: Rapid preview, Standard, Detailed export.
 - Slider vertical before/after cu `folium.plugins.SideBySideLayers`.
@@ -69,6 +74,9 @@ streamlit run app.py
 ```
 
 Autentificarea Earth Engine se face o singura data pe fiecare PC sau VM.
+Interfata se incarca si fara autentificare GEE, permitand explorarea hartii
+administrative si a parametrilor. Analiza SAR este declansata doar dupa butonul
+`Ruleaza analiza SAR`.
 
 ## Limitari
 
