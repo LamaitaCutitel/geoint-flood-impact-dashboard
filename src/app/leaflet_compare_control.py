@@ -17,6 +17,25 @@ class DynamicCompareControl(MacroElement):
           var layers = {{ this.layers_json }};
           if (!layers.length) { return; }
 
+          if (!document.getElementById('dynamic-compare-style')) {
+            var style = document.createElement('style');
+            style.id = 'dynamic-compare-style';
+            style.textContent = [
+              '.leaflet-sbs-divider {',
+              '  background: #f8fafc !important;',
+              '  box-shadow: 0 0 0 2px rgba(15,23,42,.65), 0 0 10px rgba(15,23,42,.45) !important;',
+              '  width: 4px !important;',
+              '  z-index: 999 !important;',
+              '}',
+              '.leaflet-sbs-range {',
+              '  z-index: 1000 !important;',
+              '  pointer-events: auto !important;',
+              '  cursor: ew-resize !important;',
+              '}'
+            ].join('');
+            document.head.appendChild(style);
+          }
+
           if (!window.__leafletSideBySideLoading && !window.L.control.sideBySide) {
             window.__leafletSideBySideLoading = true;
             var script = document.createElement('script');

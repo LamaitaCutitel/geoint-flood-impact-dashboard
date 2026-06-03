@@ -5,6 +5,7 @@ from typing import Any
 
 import folium
 from branca.element import MacroElement
+from folium.plugins import SideBySideLayers
 from jinja2 import Template
 
 from src.app.county_boundaries import bbox_center, county_display_name, zoom_for_bbox
@@ -152,7 +153,9 @@ class _PreviewLegend(MacroElement):
             left: 18px;
             bottom: 24px;
             z-index: 9999;
+            max-height: 360px;
             max-width: 330px;
+            overflow-y: auto;
             background: rgba(255, 255, 255, 0.94);
             border: 1px solid rgba(15, 23, 42, 0.18);
             border-radius: 6px;
@@ -164,6 +167,27 @@ class _PreviewLegend(MacroElement):
           .legend-title {
             font-weight: 700;
             margin-bottom: 6px;
+          }
+          .leaflet-control-layers {
+            max-height: 430px;
+            max-width: 360px;
+            overflow-y: auto;
+          }
+          .leaflet-control-layers-overlays,
+          .leaflet-control-layers-base {
+            max-height: 320px;
+            overflow-y: auto;
+          }
+          .leaflet-sbs-divider {
+            background: #f8fafc !important;
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7), 0 0 10px rgba(15, 23, 42, 0.45) !important;
+            width: 4px !important;
+            z-index: 999 !important;
+          }
+          .leaflet-sbs-range {
+            z-index: 1000 !important;
+            pointer-events: auto !important;
+            cursor: ew-resize !important;
           }
         </style>
         {% endmacro %}
@@ -229,7 +253,8 @@ def build_maps(
             )
         )
 
-    DynamicCompareControl(registry, auto_start=True).add_to(main_map)
+    add_default_side_by_side(registry)
+    DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
     folium.LayerControl(collapsed=False).add_to(main_map)
     return MapBundle(main_map=main_map, registry=registry)
@@ -263,7 +288,9 @@ class _MapLegend(MacroElement):
             left: 18px;
             bottom: 24px;
             z-index: 9999;
+            max-height: 360px;
             max-width: 330px;
+            overflow-y: auto;
             background: rgba(255, 255, 255, 0.94);
             border: 1px solid rgba(15, 23, 42, 0.18);
             border-radius: 6px;
@@ -322,6 +349,27 @@ class _MapLegend(MacroElement):
           }
           .legend-detail li {
             margin: 6px 0;
+          }
+          .leaflet-control-layers {
+            max-height: 430px;
+            max-width: 360px;
+            overflow-y: auto;
+          }
+          .leaflet-control-layers-overlays,
+          .leaflet-control-layers-base {
+            max-height: 320px;
+            overflow-y: auto;
+          }
+          .leaflet-sbs-divider {
+            background: #f8fafc !important;
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7), 0 0 10px rgba(15, 23, 42, 0.45) !important;
+            width: 4px !important;
+            z-index: 999 !important;
+          }
+          .leaflet-sbs-range {
+            z-index: 1000 !important;
+            pointer-events: auto !important;
+            cursor: ew-resize !important;
           }
         </style>
         {% endmacro %}
@@ -437,7 +485,22 @@ def build_result_map_from_registry_payload(
             metadata=layer_meta.get("metadata"),
         )
 
-    DynamicCompareControl(registry, auto_start=True).add_to(main_map)
+    add_default_side_by_side(registry)
+    DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
     folium.LayerControl(collapsed=False).add_to(main_map)
     return MapBundle(main_map=main_map, registry=registry)
+
+
+def add_default_side_by_side(registry: LayerRegistry) -> None:
+    layers_by_id = {layer.id: layer for layer in registry.available_layers()}
+    before = layers_by_id.get("sar_before")
+    after = layers_by_id.get("sar_after")
+    if not before or not after:
+        return
+    if not before.folium_layer or not after.folium_layer:
+        return
+    parent_map = before.folium_layer._parent
+    if parent_map is None:
+        return
+    SideBySideLayers(before.folium_layer, after.folium_layer).add_to(parent_map)

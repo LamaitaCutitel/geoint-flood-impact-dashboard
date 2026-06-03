@@ -246,6 +246,22 @@ def _render_current_map(
         "last_object_clicked_popup",
         "last_object_clicked_tooltip",
     ]
+    if last_result and last_result.get("layer_registry") and last_result.get("analysis_params", {}).get("county_name") == params.county_name:
+        result_map = build_result_map_from_registry_payload(
+            last_result["layer_registry"],
+            params,
+            counties_geojson,
+            selected_feature,
+        )
+        map_data = st_folium(
+            result_map.main_map,
+            use_container_width=True,
+            height=760,
+            returned_objects=returned_objects,
+            key=f"primary-analysis-map-{st.session_state.get('map_generation', 0)}-{params.county_name}-{_selected_pair_key(st)}",
+        )
+        _handle_county_click(st, map_data, available_counties)
+        return
     if preview and preview.get("tile_url") and preview.get("county_name") == params.county_name:
         preview_map = build_sar_preview_map(
             preview["tile_url"],
@@ -260,22 +276,6 @@ def _render_current_map(
             height=760,
             returned_objects=returned_objects,
             key=f"primary-sar-preview-{preview.get('scene', {}).get('ee_id')}",
-        )
-        _handle_county_click(st, map_data, available_counties)
-        return
-    if last_result and last_result.get("layer_registry") and last_result.get("analysis_params", {}).get("county_name") == params.county_name:
-        result_map = build_result_map_from_registry_payload(
-            last_result["layer_registry"],
-            params,
-            counties_geojson,
-            selected_feature,
-        )
-        map_data = st_folium(
-            result_map.main_map,
-            use_container_width=True,
-            height=760,
-            returned_objects=returned_objects,
-            key=f"primary-analysis-map-{st.session_state.get('map_generation', 0)}-{params.county_name}",
         )
         _handle_county_click(st, map_data, available_counties)
         return
@@ -539,6 +539,14 @@ def _sar_search_key(params: Any) -> tuple[Any, ...]:
     )
 
 
+def _selected_pair_key(st: Any) -> str:
+    before = st.session_state.get("sar_before_scene") or {}
+    after = st.session_state.get("sar_after_scene") or {}
+    before_id = str(before.get("display_id") or "before").replace(" ", "_")
+    after_id = str(after.get("display_id") or "after").replace(" ", "_")
+    return f"{before_id}-{after_id}"
+
+
 def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None, ee: Any) -> None:
     ensure_output_dirs()
     logger = ProgressLogger()
@@ -757,6 +765,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "logger": logger,
             "report_paths": report_paths,
         }
+        st.session_state.pop("sar_preview", None)
         st.session_state.map_generation = st.session_state.get("map_generation", 0) + 1
         st.rerun()
     except Exception as exc:
