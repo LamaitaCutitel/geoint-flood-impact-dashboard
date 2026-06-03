@@ -4,10 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import folium
-from folium.plugins import SideBySideLayers
 
 from src.app.county_boundaries import bbox_center, county_display_name, zoom_for_bbox
-from src.gee.gee_tile_layers import add_ee_tile_layer
+from src.app.layer_registry import LayerEntry, LayerRegistry
+from src.app.leaflet_compare_control import DynamicCompareControl
+from src.gee.gee_tile_layers import ee_tile_url
 
 
 ROMANIA_CENTER = [45.9432, 24.9668]
@@ -17,7 +18,7 @@ ROMANIA_ZOOM = 6
 @dataclass
 class MapBundle:
     main_map: folium.Map
-    comparison_map: folium.Map | None = None
+    registry: LayerRegistry | None = None
     fallback_reason: str | None = None
 
 
@@ -52,16 +53,33 @@ def add_counties_layer(
 
     folium.GeoJson(
         counties_geojson,
-        name="Judetele Romaniei",
+        name="Administrativ - toate judetele",
         style_function=style_function,
         highlight_function=highlight_function,
-        tooltip=folium.GeoJsonTooltip(
-            fields=["NAME_LATN"],
-            aliases=["Judet"],
-            localize=True,
-            sticky=True,
-        ),
+        tooltip=folium.GeoJsonTooltip(fields=["NAME_LATN"], aliases=["Judet"], localize=True, sticky=True),
         popup=folium.GeoJsonPopup(fields=["NAME_LATN"], aliases=["Judet"]),
+        show=True,
+    ).add_to(folium_map)
+
+
+def add_selected_county_layer(
+    folium_map: folium.Map,
+    selected_feature: dict[str, Any] | None,
+) -> None:
+    if not selected_feature:
+        return
+    folium.GeoJson(
+        selected_feature,
+        name="Administrativ - judet selectat",
+        style_function=lambda _: {
+            "color": "#b91c1c",
+            "weight": 4,
+            "fillColor": "#f97316",
+            "fillOpacity": 0.18,
+        },
+        tooltip=folium.GeoJsonTooltip(fields=["NAME_LATN"], aliases=["Judet"]),
+        popup=folium.GeoJsonPopup(fields=["NAME_LATN"], aliases=["Judet selectat"]),
+        show=True,
     ).add_to(folium_map)
 
 
@@ -69,62 +87,69 @@ def build_county_overview_map(
     counties_geojson: dict[str, Any] | None,
     selected_county: str,
     selected_bbox: list[float] | None = None,
-) -> folium.Map:
+    selected_feature: dict[str, Any] | None = None,
+) -> MapBundle:
     center = bbox_center(selected_bbox) if selected_bbox else ROMANIA_CENTER
     zoom = zoom_for_bbox(selected_bbox) if selected_bbox else ROMANIA_ZOOM
     folium_map = _base_map(center, zoom)
     add_counties_layer(folium_map, counties_geojson, selected_county)
+    add_selected_county_layer(folium_map, selected_feature)
     if selected_bbox:
-        folium_map.fit_bounds(
-            [[selected_bbox[1], selected_bbox[0]], [selected_bbox[3], selected_bbox[2]]]
-        )
+        folium_map.fit_bounds([[selected_bbox[1], selected_bbox[0]], [selected_bbox[3], selected_bbox[2]]])
     folium.LayerControl(collapsed=False).add_to(folium_map)
-    return folium_map
+    return MapBundle(main_map=folium_map)
 
 
 def build_maps(
-    layer_images: dict[str, Any],
+    layer_images: dict[str, dict[str, Any]],
     params: Any,
     counties_geojson: dict[str, Any] | None = None,
+    selected_feature: dict[str, Any] | None = None,
+    registry: LayerRegistry | None = None,
 ) -> MapBundle:
+    registry = registry or LayerRegistry()
     center = bbox_center(params.bbox)
     zoom = zoom_for_bbox(params.bbox)
     main_map = _base_map(center, zoom)
     add_counties_layer(main_map, counties_geojson, params.county_name)
+    add_selected_county_layer(main_map, selected_feature)
     main_map.fit_bounds([[params.bbox[1], params.bbox[0]], [params.bbox[3], params.bbox[2]]])
 
-    shown_layers = {
-        "detected flood extent",
-        "Sentinel-1 SAR after",
-    }
-    if params.show_permanent_water:
-        shown_layers.add("permanent water")
+    for layer_id, meta in layer_images.items():
+        display_name = meta["display_name"]
+        tile_url = ee_tile_url(meta["image"], display_name)
+        if not tile_url:
+            registry.unavailable(
+                layer_id=layer_id,
+                display_name=display_name,
+                category=meta["category"],
+                layer_type=meta["layer_type"],
+                warning=f"Nu s-a putut genera tile URL pentru {display_name}.",
+            )
+            continue
+        layer = folium.TileLayer(
+            tiles=tile_url,
+            attr="Google Earth Engine",
+            name=f"{meta['category']} - {display_name}",
+            overlay=True,
+            control=True,
+            show=meta.get("shown", False),
+        )
+        layer.add_to(main_map)
+        registry.add(
+            LayerEntry(
+                id=layer_id,
+                display_name=display_name,
+                category=meta["category"],
+                layer_type=meta["layer_type"],
+                available=True,
+                comparable=meta.get("comparable", True),
+                shown=meta.get("shown", False),
+                tile_url=tile_url,
+                folium_layer=layer,
+            )
+        )
 
-    for layer_name, image in layer_images.items():
-        add_ee_tile_layer(main_map, image, layer_name, shown=layer_name in shown_layers)
-
+    DynamicCompareControl(registry).add_to(main_map)
     folium.LayerControl(collapsed=False).add_to(main_map)
-
-    comparison_map = _base_map(center, zoom)
-    comparison_map.fit_bounds([[params.bbox[1], params.bbox[0]], [params.bbox[3], params.bbox[2]]])
-    left = add_ee_tile_layer(
-        comparison_map, layer_images.get(params.left_layer), params.left_layer, True
-    )
-    right = add_ee_tile_layer(
-        comparison_map, layer_images.get(params.right_layer), params.right_layer, True
-    )
-    fallback_reason = None
-    if left and right:
-        try:
-            SideBySideLayers(left, right).add_to(comparison_map)
-        except Exception as exc:
-            fallback_reason = f"Fallback comparatie side-by-side: {exc}"
-    else:
-        fallback_reason = "Comparația side-by-side nu are ambele layere disponibile."
-
-    folium.LayerControl(collapsed=False).add_to(comparison_map)
-    return MapBundle(
-        main_map=main_map,
-        comparison_map=comparison_map,
-        fallback_reason=fallback_reason,
-    )
+    return MapBundle(main_map=main_map, registry=registry)

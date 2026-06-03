@@ -13,6 +13,10 @@ Limitari principale:
 - Dynamic World are rezolutie si incertitudini proprii.
 - Nu exista validare oficiala in aceasta versiune.
 - Aplicatia nu ruleaza modelare hidraulica si nu prezice precipitatii.
+- Selectarea prin click direct pe poligon depinde de comportamentul `streamlit-folium`;
+  dropdown-ul din sidebar ramane metoda stabila principala.
+- Controlul de comparatie din harta foloseste tile URL-urile deja generate si nu
+  reruleaza GEE, dar depinde de pluginul Leaflet side-by-side incarcat in browser.
 
 Rezultatele reprezinta produse GEOINT preliminare de suport decizional. Extinderea
 detectata automat prin Sentinel-1 SAR poate diferi de situatia reala din teren din

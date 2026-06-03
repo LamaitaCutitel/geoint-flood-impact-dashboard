@@ -27,12 +27,13 @@ def detect_flood_extent(
     permanent_water: Any | None = None,
 ) -> FloodDetectionResult:
     warnings: list[str] = []
-    change = before_image.divide(after_image).rename("sar_ratio")
-    flood_mask = change.gt(threshold).selfMask()
+    change = before_image.subtract(after_image).rename("sar_difference").clip(aoi)
+    ratio = before_image.divide(after_image).rename("sar_ratio").clip(aoi)
+    flood_mask = ratio.gt(threshold).selfMask().clip(aoi)
 
     if minimum_connected_pixels > 0:
         connected = flood_mask.connectedPixelCount(100, True)
-        flood_mask = flood_mask.updateMask(connected.gte(minimum_connected_pixels))
+        flood_mask = flood_mask.updateMask(connected.gte(minimum_connected_pixels)).clip(aoi)
 
     extent_before_water_mask = _area_km2(ee, flood_mask, aoi, scale)
     permanent_removed = 0.0
@@ -40,14 +41,14 @@ def detect_flood_extent(
         flood_mask_without_permanent = mask_permanent_water(flood_mask, permanent_water)
         extent_after_water_mask = _area_km2(ee, flood_mask_without_permanent, aoi, scale)
         permanent_removed = max(extent_before_water_mask - extent_after_water_mask, 0.0)
-        flood_mask = flood_mask_without_permanent
+        flood_mask = flood_mask_without_permanent.clip(aoi)
     else:
         warnings.append("Masca de apa permanenta nu a fost aplicata.")
         extent_after_water_mask = extent_before_water_mask
 
     return FloodDetectionResult(
         flood_mask=flood_mask,
-        change_image=change,
+        change_image=change.addBands(ratio),
         detected_extent_km2=extent_after_water_mask,
         permanent_water_removed_km2=round(permanent_removed, 4),
         warnings=warnings,

@@ -25,7 +25,11 @@ preliminara a inundatiilor cu Sentinel-1 SAR in Google Earth Engine.
 - Masca JRC pentru apa permanenta.
 - Intersectare Dynamic World.
 - Harta Folium cu layer control.
-- Slider vertical before/after cu fallback.
+- O singura harta pentru selectie judet si rezultate.
+- Layer registry central pentru layere disponibile/indisponibile.
+- Control Leaflet in harta pentru comparatie dinamica intre doua layere.
+- Sentinel-2 RGB si indici NDWI/MNDWI/NDVI/NDMI.
+- DEM, hillshade si slope.
 - Rapoarte JSON, CSV, HTML si TXT.
 
 ## Dataset-uri

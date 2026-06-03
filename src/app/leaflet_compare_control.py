@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import json
+
+from branca.element import MacroElement
+from jinja2 import Template
+
+from src.app.layer_registry import LayerRegistry
+
+
+class DynamicCompareControl(MacroElement):
+    _template = Template(
+        """
+        {% macro script(this, kwargs) %}
+        (function() {
+          var map = {{ this._parent.get_name() }};
+          var layers = {{ this.layers_json }};
+          if (!layers.length) { return; }
+
+          if (!window.L.control.sideBySide) {
+            var script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/leaflet-side-by-side@2.2.0/leaflet-side-by-side.min.js';
+            document.head.appendChild(script);
+          }
+
+          var compareControl = null;
+          var leftLayer = null;
+          var rightLayer = null;
+
+          function makeLayer(item) {
+            return L.tileLayer(item.tile_url, {
+              attribution: 'Google Earth Engine',
+              opacity: 1
+            });
+          }
+
+          function renderControl(container) {
+            container.innerHTML = '';
+            var title = L.DomUtil.create('div', 'compare-title', container);
+            title.innerHTML = '<strong>Compara doua layere</strong>';
+            var left = L.DomUtil.create('select', '', container);
+            var right = L.DomUtil.create('select', '', container);
+            layers.forEach(function(item, idx) {
+              var optLeft = document.createElement('option');
+              optLeft.value = idx;
+              optLeft.text = item.display_name;
+              left.appendChild(optLeft);
+              var optRight = document.createElement('option');
+              optRight.value = idx;
+              optRight.text = item.display_name;
+              right.appendChild(optRight);
+            });
+            right.value = layers.length > 1 ? 1 : 0;
+            var start = L.DomUtil.create('button', '', container);
+            start.innerText = 'Porneste comparatia';
+            var swap = L.DomUtil.create('button', '', container);
+            swap.innerText = 'Schimba layerele';
+            var stop = L.DomUtil.create('button', '', container);
+            stop.innerText = 'Iesi din comparatie';
+
+            function clearCompare() {
+              if (compareControl) {
+                map.removeControl(compareControl);
+                compareControl = null;
+              }
+              if (leftLayer) { map.removeLayer(leftLayer); leftLayer = null; }
+              if (rightLayer) { map.removeLayer(rightLayer); rightLayer = null; }
+            }
+
+            function startCompare() {
+              clearCompare();
+              var leftItem = layers[parseInt(left.value)];
+              var rightItem = layers[parseInt(right.value)];
+              leftLayer = makeLayer(leftItem).addTo(map);
+              rightLayer = makeLayer(rightItem).addTo(map);
+              var waitForPlugin = function() {
+                if (window.L.control.sideBySide) {
+                  compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(map);
+                } else {
+                  setTimeout(waitForPlugin, 150);
+                }
+              };
+              waitForPlugin();
+            }
+
+            start.onclick = startCompare;
+            swap.onclick = startCompare;
+            stop.onclick = clearCompare;
+            L.DomEvent.disableClickPropagation(container);
+          }
+
+          var control = L.control({position: 'topright'});
+          control.onAdd = function() {
+            var div = L.DomUtil.create('div', 'leaflet-bar dynamic-compare-control');
+            div.style.background = 'white';
+            div.style.padding = '8px';
+            div.style.maxWidth = '260px';
+            div.style.fontSize = '12px';
+            div.style.boxShadow = '0 1px 6px rgba(0,0,0,.25)';
+            div.querySelectorAll = div.querySelectorAll || function(){ return []; };
+            renderControl(div);
+            return div;
+          };
+          control.addTo(map);
+        })();
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, registry: LayerRegistry) -> None:
+        super().__init__()
+        self._name = "DynamicCompareControl"
+        self.layers_json = json.dumps(
+            [
+                {
+                    "id": layer.id,
+                    "display_name": layer.display_name,
+                    "tile_url": layer.tile_url,
+                }
+                for layer in registry.comparable_layers()
+            ],
+            ensure_ascii=False,
+        )

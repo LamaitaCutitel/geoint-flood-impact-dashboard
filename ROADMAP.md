@@ -9,3 +9,4 @@
 - Export GeoTIFF si GeoJSON doar la cererea explicita a utilizatorului.
 - Comparatie SAR vs NDWI/MNDWI.
 - Validare cu seturi de referinta publice.
+- Stabilizare suplimentara a selectarii judetului prin click direct pe poligon in `streamlit-folium`.

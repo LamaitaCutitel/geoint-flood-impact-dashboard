@@ -38,6 +38,11 @@ def configure_page(st) -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+    st.title("Dashboard GEOINT pentru analiza preliminara a inundatiilor")
+    st.caption(
+        "Analiza Sentinel-1 SAR, procesare cloud in Google Earth Engine si evaluarea "
+        "tipurilor de teren intersectate."
+    )
 
 
 def render_usage(st) -> None:
@@ -171,20 +176,6 @@ def sidebar_parameters(
                 show_land = st.checkbox("Dynamic World", True)
                 show_s2 = st.checkbox("Sentinel-2 RGB auxiliar", False)
 
-            with st.expander("Comparatie vizuala", expanded=False):
-                comparison = st.selectbox("Comparatie vizuala", list(COMPARISON_PRESETS))
-                left_default, right_default = COMPARISON_PRESETS[comparison]
-                left_layer = st.selectbox(
-                    "Layer stanga",
-                    LAYER_OPTIONS,
-                    index=LAYER_OPTIONS.index(left_default),
-                )
-                right_layer = st.selectbox(
-                    "Layer dreapta",
-                    LAYER_OPTIONS,
-                    index=LAYER_OPTIONS.index(right_default),
-                )
-
             run_analysis = st.form_submit_button(
                 "Ruleaza analiza SAR",
                 type="primary",
@@ -222,9 +213,9 @@ def sidebar_parameters(
         show_sar_after=show_after,
         show_sar_change=show_change,
         show_detected_flood_extent=show_flood,
-        comparison_preset=comparison,
-        left_layer=left_layer,
-        right_layer=right_layer,
+        comparison_preset="Compara doua layere in harta",
+        left_layer="Sentinel-1 SAR before",
+        right_layer="Sentinel-1 SAR after",
     )
     if run_analysis:
         st.session_state.last_analysis_params = params.as_dict()

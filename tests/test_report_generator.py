@@ -46,8 +46,9 @@ def test_generate_reports_writes_json_csv_html_and_log(tmp_path):
         ["Raport generat."],
         ["warning"],
     )
-    assert set(paths) == {"json", "csv", "html", "log"}
+    assert set(paths) == {"json", "csv", "html", "log", "log_json"}
     payload = json.loads(paths["json"].read_text(encoding="utf-8"))
     assert payload["warnings"] == ["warning"]
     assert "Raport GEOINT preliminar" in paths["html"].read_text(encoding="utf-8")
     assert "Raport generat." in paths["log"].read_text(encoding="utf-8")
+    assert paths["log_json"].exists()

@@ -18,6 +18,7 @@ def build_report_payload(
     metrics: dict[str, Any],
     land_cover_statistics: dict[str, float],
     warnings: list[str] | None = None,
+    layer_registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "aoi": analysis_parameters.get("aoi_name", "custom AOI"),
@@ -43,7 +44,10 @@ def build_report_payload(
         "sar_detected_extent_km2": metrics.get("sar_detected_extent_km2", 0.0),
         "permanent_water_removed_km2": metrics.get("permanent_water_removed_km2", 0.0),
         "land_cover_statistics_km2": land_cover_statistics,
+        "available_layers": (layer_registry or {}).get("available", []),
+        "unavailable_layers": (layer_registry or {}).get("unavailable", []),
         "dominant_class": metrics.get("dominant_land_cover_class", "not available"),
+        "processing_time": metrics.get("processing_time"),
         "warnings": warnings or [],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "methodological_note": METHODOLOGICAL_NOTE,
@@ -57,6 +61,8 @@ def generate_reports(
     land_cover_statistics: dict[str, float],
     processing_log: list[str],
     warnings: list[str] | None = None,
+    layer_registry: dict[str, Any] | None = None,
+    processing_log_json: str | None = None,
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = build_report_payload(
@@ -64,12 +70,14 @@ def generate_reports(
         metrics=metrics,
         land_cover_statistics=land_cover_statistics,
         warnings=warnings,
+        layer_registry=layer_registry,
     )
 
     json_path = output_dir / f"{REPORT_BASENAME}.json"
     csv_path = output_dir / f"{REPORT_BASENAME}.csv"
     html_path = output_dir / f"{REPORT_BASENAME}.html"
     log_path = output_dir / "processing_log.txt"
+    log_json_path = output_dir / "processing_log.json"
 
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -83,12 +91,14 @@ def generate_reports(
 
     html_path.write_text(_render_html(payload), encoding="utf-8")
     log_path.write_text("\n".join(processing_log), encoding="utf-8")
+    log_json_path.write_text(processing_log_json or "{}", encoding="utf-8")
 
     return {
         "json": json_path,
         "csv": csv_path,
         "html": html_path,
         "log": log_path,
+        "log_json": log_json_path,
     }
 
 

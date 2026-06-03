@@ -19,7 +19,11 @@ def build_before_after_composites(
     after_collection: Any,
     ee: Any,
     smoothing_radius: int,
+    aoi: Any | None = None,
 ) -> tuple[Any, Any]:
     before = smooth_sar(median_composite(before_collection), ee, smoothing_radius)
     after = smooth_sar(median_composite(after_collection), ee, smoothing_radius)
+    if aoi is not None:
+        before = before.clip(aoi)
+        after = after.clip(aoi)
     return before, after

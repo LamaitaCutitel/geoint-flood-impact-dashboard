@@ -17,15 +17,17 @@ from src.app.county_boundaries import (
     load_or_download_counties,
     selected_county_feature,
 )
+from src.app.layer_registry import LayerRegistry
 from src.app.layout import configure_page, sidebar_parameters
 from src.app.map_builder import build_county_overview_map, build_maps
-from src.app.progress_logger import ProgressLogger
+from src.app.progress_logger import ProgressLogger, bootstrap_startup_logger, render_progress
 from src.app.results_panel import render_land_cover, render_metric_cards
 from src.gee.dynamic_world import (
     dynamic_world_mode,
     land_cover_intersection_stats,
     summarize_land_cover,
 )
+from src.gee.dem_layers import build_dem_products
 from src.gee.gee_auth import AUTH_COMMANDS, initialize_earth_engine, local_earthengine_status
 from src.gee.permanent_water import permanent_water_mask
 from src.gee.sar_flood_detection import detect_flood_extent
@@ -35,7 +37,7 @@ from src.gee.sentinel1_collection import (
     count_scenes,
     get_sentinel1_collection,
 )
-from src.gee.sentinel2_context import sentinel2_rgb_context
+from src.gee.sentinel2_context import build_sentinel2_products
 from src.reports.report_generator import generate_reports
 
 
@@ -45,7 +47,7 @@ GEE_NOT_READY_MESSAGE = (
     "GEE_PROJECT_ID in fisierul .env."
 )
 
-SHOW_DEBUG_PANELS = False
+SHOW_DEBUG_PANELS = True
 
 
 def main() -> None:
@@ -66,6 +68,13 @@ def main() -> None:
     local_gee = local_earthengine_status()
     gee_available = bool(st.session_state.get("gee_available", local_gee.available))
     analysis_can_start = bool(settings.gee_project_id)
+    startup_logger = bootstrap_startup_logger(
+        st,
+        county_count=len(names),
+        warnings=boundary_result.warnings,
+        gee_available=gee_available,
+        project_configured=bool(settings.gee_project_id),
+    )
 
     params, run_analysis = sidebar_parameters(
         st,
@@ -80,14 +89,16 @@ def main() -> None:
     params.bbox = feature_bbox(feature)
     params.county_geometry = county_geometry(feature)
 
-    if SHOW_DEBUG_PANELS:
-        _render_service_status(
-            st,
-            counties_available=boundary_result.available,
-            gee_available=gee_available,
-            project_configured=bool(settings.gee_project_id),
-            last_analysis_available="last_analysis_result" in st.session_state,
-        )
+    _render_service_status(
+        st,
+        counties_available=boundary_result.available,
+        gee_available=gee_available,
+        project_configured=bool(settings.gee_project_id),
+        last_analysis_available="last_analysis_result" in st.session_state,
+        last_analysis=st.session_state.get("last_analysis_result"),
+    )
+    _render_usage(st)
+    render_progress(st, startup_logger)
 
     if boundary_result.warnings:
         _render_friendly_error(
@@ -103,9 +114,6 @@ def main() -> None:
         st.code("\n".join(AUTH_COMMANDS), language="powershell")
     elif SHOW_DEBUG_PANELS:
         st.info(local_gee.message)
-
-    overview_map = build_county_overview_map(counties_geojson, params.county_name, params.bbox)
-    st_folium(overview_map, use_container_width=True, height=650)
 
     validation_warnings = validate_analysis_parameters(params.as_dict())
     for warning in validation_warnings:
@@ -127,6 +135,14 @@ def main() -> None:
 
     if "last_analysis_result" in st.session_state:
         _render_analysis_result(st, st.session_state.last_analysis_result)
+    else:
+        overview_map = build_county_overview_map(
+            counties_geojson,
+            params.county_name,
+            params.bbox,
+            selected_feature=feature,
+        )
+        st_folium(overview_map.main_map, use_container_width=True, height=700)
 
 
 def _selected_county(st: Any, names: list[str]) -> str:
@@ -143,14 +159,20 @@ def _render_service_status(
     gee_available: bool,
     project_configured: bool,
     last_analysis_available: bool,
+    last_analysis: dict[str, Any] | None = None,
 ) -> None:
     st.subheader("Status servicii")
     cols = st.columns(3)
+    metrics = (last_analysis or {}).get("metrics", {})
     statuses = [
         ("Interfata Streamlit", "disponibila", "success"),
         ("GeoJSON judete", "disponibil" if counties_available else "lipsa", "success" if counties_available else "error"),
         ("Google Earth Engine", "initializat" if gee_available else "neinitializat", "success" if gee_available else "warning"),
         ("GEE_PROJECT_ID", "configurat" if project_configured else "lipsa", "success" if project_configured else "warning"),
+        ("Sentinel-1", "disponibil" if metrics.get("scene_count_before") or metrics.get("scene_count_after") else "disponibil dupa analiza", "success" if last_analysis_available else "warning"),
+        ("Sentinel-2", "disponibil" if metrics.get("sentinel2_scene_count_before") or metrics.get("sentinel2_scene_count_after") else "indisponibil pana la analiza", "success" if metrics.get("sentinel2_scene_count_before") or metrics.get("sentinel2_scene_count_after") else "warning"),
+        ("Dynamic World", "disponibil" if last_analysis_available else "disponibil dupa analiza", "success" if last_analysis_available else "warning"),
+        ("JRC water", "disponibil" if last_analysis_available else "disponibil dupa analiza", "success" if last_analysis_available else "warning"),
         ("Cache local", "disponibil", "success"),
         ("Ultima analiza", "disponibila" if last_analysis_available else "indisponibila", "success" if last_analysis_available else "warning"),
     ]
@@ -163,6 +185,21 @@ def _render_service_status(
                 st.error(value)
             else:
                 st.warning(value)
+
+
+def _render_usage(st: Any) -> None:
+    with st.expander("Cum se foloseste aplicatia", expanded=True):
+        st.markdown(
+            """
+1. Selecteaza judetul direct din harta sau din lista laterala.
+2. Verifica perioadele inainte si dupa eveniment.
+3. Ajusteaza parametrii doar daca este necesar.
+4. Apasa `Ruleaza analiza SAR`.
+5. Urmareste jurnalul live.
+6. Exploreaza si compara layerele direct din harta.
+7. Descarca raportul.
+"""
+        )
 
 
 def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None, ee: Any) -> None:
@@ -212,6 +249,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             after_collection,
             ee,
             params.smoothing_radius,
+            aoi,
         )
 
         logger.log(58, "Se calculeaza diferenta SAR.")
@@ -236,25 +274,64 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
         )
         logger.log(76, "Se calculeaza suprafata preliminara detectata.")
 
-        logger.log(82, "Se analizeaza tipurile de teren cu Dynamic World.")
-        land_cover = dynamic_world_mode(
+        logger.log(78, "Se cauta imagini Sentinel-2.")
+        logger.log(80, "Se aplica masca de nori Sentinel-2.")
+        logger.log(82, "Se genereaza RGB, NDWI, MNDWI, NDVI si NDMI.")
+        s2_products = build_sentinel2_products(
             ee,
             aoi,
             str(params.before_start_date),
+            str(params.before_end_date),
+            str(params.after_start_date),
             str(params.after_end_date),
         )
+        for warning in s2_products.warnings:
+            logger.warn(warning)
+
+        logger.log(84, "Se proceseaza Dynamic World.")
+        land_cover_before = dynamic_world_mode(
+            ee,
+            aoi,
+            str(params.before_start_date),
+            str(params.before_end_date),
+        )
+        land_cover_after = dynamic_world_mode(
+            ee,
+            aoi,
+            str(params.after_start_date),
+            str(params.after_end_date),
+        )
+        land_cover_changes = land_cover_after.subtract(land_cover_before).rename("land_cover_changes").clip(aoi)
         land_cover_stats = land_cover_intersection_stats(
             ee,
-            land_cover,
+            land_cover_after,
             detection.flood_mask,
             aoi,
             params.scale,
         )
         land_cover_summary = summarize_land_cover(land_cover_stats)
 
-        logger.log(88, "Se genereaza layerele hartii.")
-        layer_images = _layer_images(params, before_image, after_image, detection, permanent_water, land_cover, ee, aoi)
-        maps = build_maps(layer_images, params, counties_geojson)
+        logger.log(86, "Se genereaza DEM, hillshade si slope.")
+        dem_products = build_dem_products(ee, aoi)
+
+        logger.log(88, "Se aplica crop dupa geometria judetului pentru toate layerele.")
+        logger.log(90, "Se genereaza tile layers GEE.")
+        registry = LayerRegistry()
+        layer_images = _layer_images(
+            params,
+            before_image,
+            after_image,
+            detection,
+            permanent_water,
+            land_cover_before,
+            land_cover_after,
+            land_cover_changes,
+            s2_products,
+            dem_products,
+        )
+        selected_feature = selected_county_feature(counties_geojson, params.county_name) if counties_geojson else None
+        maps = build_maps(layer_images, params, counties_geojson, selected_feature, registry)
+        logger.log(92, "Se actualizeaza harta interactiva.")
 
         metrics = {
             "aoi": params.aoi_name,
@@ -263,6 +340,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "after_period": f"{params.after_start_date} - {params.after_end_date}",
             "scene_count_before": before_count,
             "scene_count_after": after_count,
+            "sentinel2_scene_count_before": s2_products.scene_count_before,
+            "sentinel2_scene_count_after": s2_products.scene_count_after,
             "sar_detected_extent_km2": detection.detected_extent_km2,
             "permanent_water_removed_km2": detection.permanent_water_removed_km2,
             "dominant_land_cover_class": land_cover_summary["dominant_class"],
@@ -272,7 +351,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "processing_time": f"{logger.duration_seconds()} s",
         }
 
-        logger.log(94, "Se genereaza raportul.")
+        logger.log(94, "Se calculeaza statisticile.")
+        logger.log(97, "Se genereaza raportul.")
         report_paths = generate_reports(
             output_dir=REPORTS_DIR,
             analysis_parameters=params.as_dict(),
@@ -280,6 +360,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             land_cover_statistics=land_cover_stats,
             processing_log=[entry["message"] for entry in logger.entries],
             warnings=logger.warnings + detection.warnings,
+            layer_registry=maps.registry.report_payload() if maps.registry else None,
+            processing_log_json=logger.as_json(),
         )
         logger.log(100, "Analiza a fost finalizata.", "success")
         st.session_state.last_analysis_result = {
@@ -306,27 +388,63 @@ def _layer_images(
     after_image: Any,
     detection: Any,
     permanent_water: Any,
-    land_cover: Any,
-    ee: Any,
-    aoi: Any,
-) -> dict[str, Any]:
-    layer_images = {}
+    land_cover_before: Any,
+    land_cover_after: Any,
+    land_cover_changes: Any,
+    s2_products: Any,
+    dem_products: Any,
+) -> dict[str, dict[str, Any]]:
+    layer_images: dict[str, dict[str, Any]] = {}
+    def add(layer_id: str, display_name: str, category: str, layer_type: str, image: Any, shown: bool = False) -> None:
+        if image is not None:
+            layer_images[layer_id] = {
+                "display_name": display_name,
+                "category": category,
+                "layer_type": layer_type,
+                "image": image,
+                "shown": shown,
+                "comparable": True,
+            }
+
     if params.show_sar_before:
-        layer_images["Sentinel-1 SAR before"] = before_image
+        add("sar_before", "Sentinel-1 SAR before", "Sentinel-1 SAR", "before", before_image)
     if params.show_sar_after:
-        layer_images["Sentinel-1 SAR after"] = after_image
+        add("sar_after", "Sentinel-1 SAR after", "Sentinel-1 SAR", "after", after_image)
     if params.show_sar_change:
-        layer_images["SAR change"] = detection.change_image
+        add("sar_difference", "SAR difference", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_difference"))
+        add("sar_ratio", "SAR ratio", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_ratio"))
     if params.show_detected_flood_extent:
-        layer_images["detected flood extent"] = detection.flood_mask
+        add("flood_extent", "detected flood extent", "Sentinel-1 SAR", "result", detection.flood_mask, True)
     if params.show_permanent_water and permanent_water is not None:
-        layer_images["permanent water"] = permanent_water
+        add("permanent_water", "permanent water", "Date auxiliare", "static", permanent_water)
     if params.show_land_cover:
-        layer_images["land cover"] = land_cover
-    if params.show_sentinel2_rgb:
-        layer_images["Sentinel-2 RGB"] = sentinel2_rgb_context(
-            ee, aoi, str(params.before_start_date), str(params.after_end_date)
-        )
+        add("dynamic_world_before", "Dynamic World before", "Land cover", "before", land_cover_before)
+        add("dynamic_world_after", "Dynamic World after", "Land cover", "after", land_cover_after)
+        add("land_cover_changes", "Land cover changes", "Land cover", "delta", land_cover_changes)
+        add("intersected_land_cover", "land cover", "Land cover", "result", land_cover_after.updateMask(detection.flood_mask))
+    if s2_products.rgb_before is not None:
+        add("rgb_before", "RGB before", "Sentinel-2 optic", "before", s2_products.rgb_before)
+    if s2_products.rgb_after is not None:
+        add("rgb_after", "RGB after", "Sentinel-2 optic", "after", s2_products.rgb_after)
+    index_names = {
+        "ndwi_before": ("NDWI before", "before"),
+        "ndwi_after": ("NDWI after", "after"),
+        "delta_ndwi": ("Delta NDWI", "delta"),
+        "mndwi_before": ("MNDWI before", "before"),
+        "mndwi_after": ("MNDWI after", "after"),
+        "delta_mndwi": ("Delta MNDWI", "delta"),
+        "ndvi_before": ("NDVI before", "before"),
+        "ndvi_after": ("NDVI after", "after"),
+        "delta_ndvi": ("Delta NDVI", "delta"),
+        "ndmi_before": ("NDMI before", "before"),
+        "ndmi_after": ("NDMI after", "after"),
+        "delta_ndmi": ("Delta NDMI", "delta"),
+    }
+    for key, (display, layer_type) in index_names.items():
+        add(key, display, "Sentinel-2 optic", layer_type, s2_products.indices.get(key))
+    add("dem", "DEM", "Date auxiliare", "static", dem_products.dem)
+    add("hillshade", "Hillshade", "Date auxiliare", "static", dem_products.hillshade)
+    add("slope", "Slope", "Date auxiliare", "static", dem_products.slope)
     return layer_images
 
 
@@ -335,10 +453,6 @@ def _render_analysis_result(st: Any, result: dict[str, Any]) -> None:
         render_metric_cards(st, result["metrics"])
     st_folium = __import__("streamlit_folium").st_folium
     st_folium(result["maps"].main_map, use_container_width=True, height=650)
-    if result["maps"].comparison_map:
-        if result["maps"].fallback_reason:
-            st.info(result["maps"].fallback_reason)
-        st_folium(result["maps"].comparison_map, use_container_width=True, height=650)
     if SHOW_DEBUG_PANELS:
         render_land_cover(st, result["land_cover_stats"])
         with st.expander("Rapoarte generate", expanded=False):

@@ -33,13 +33,19 @@ analize rapide.
 ## Functionalitati
 
 - Preset `Galati - September 2024 Floods`.
+- O singura harta interactiva folosita pentru selectia judetului si rezultatele finale.
 - Harta initiala a Romaniei disponibila imediat, chiar fara Google Earth Engine.
 - Dropdown pentru selectarea judetului, implicit `Galati`.
 - Evidentierea judetului selectat, tooltip, popup si zoom automat pe bounding box.
 - Status servicii si jurnal live de initializare vizibile la pornire.
+- AOI-ul analizei foloseste geometria reala a judetului, iar bounding box-ul este folosit doar pentru zoom.
 - Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag, pixeli conectati.
+- Sentinel-2 RGB si indici NDWI, MNDWI, NDVI, NDMI pentru before/after si diferente.
+- Dynamic World before/after, diferente observate intre compozitele analizate si terenuri intersectate.
+- DEM SRTM, hillshade si slope ca layere auxiliare.
 - Profile de analiza: Rapid preview, Standard, Detailed export.
-- Slider vertical before/after cu `folium.plugins.SideBySideLayers`.
+- Layer registry central pentru LayerControl, raport si comparatii.
+- Control in harta `Compara doua layere`, care porneste un slider vertical fara rerulare GEE.
 - Fallback documentat cand layer-ele GEE nu sunt disponibile.
 - Tabel si bar chart pentru terenuri intersectate de extinderea preliminara detectata.
 - Rapoarte mici in `data/output/reports/`.
@@ -81,6 +87,21 @@ Autentificarea Earth Engine se face o singura data pe fiecare PC sau VM.
 Interfata se incarca si fara autentificare GEE, permitand explorarea hartii
 administrative si a parametrilor. Analiza SAR este declansata doar dupa butonul
 `Ruleaza analiza SAR`.
+
+## Harta Unica Si Layere
+
+Aplicatia foloseste o singura harta Folium/Leaflet. La pornire, harta afiseaza
+judetele Romaniei. Dupa analiza, aceeasi harta primeste layere GEE decupate dupa
+geometria judetului selectat:
+
+- Sentinel-1 SAR before, after, diferenta, raport si extindere preliminara detectata.
+- Sentinel-2 RGB before/after si indici NDWI, MNDWI, NDVI, NDMI.
+- Dynamic World before/after si diferente observate intre compozitele analizate.
+- Apa permanenta JRC, DEM, hillshade si slope.
+
+Layerele pot fi activate/dezactivate din LayerControl. Controlul `Compara doua
+layere` din harta permite alegerea a doua layere comparabile pentru bara verticala
+glisanta, fara procesare GEE noua.
 
 ## Limitari
 
