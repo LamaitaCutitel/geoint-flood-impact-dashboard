@@ -111,6 +111,9 @@ def main() -> None:
     for warning in validation_warnings:
         st.warning(warning)
 
+    with map_slot:
+        _render_current_map(st, counties_geojson, feature, params)
+
     if run_analysis:
         if validation_warnings:
             st.error("Corecteaza parametrii invalizi inainte de analiza.")
@@ -124,9 +127,6 @@ def main() -> None:
                 st.code("\n".join(AUTH_COMMANDS), language="powershell")
             else:
                 _run_analysis(st, params, counties_geojson, gee_status.ee)
-
-    with map_slot:
-        _render_current_map(st, counties_geojson, feature, params)
 
     with st.expander("Informatii secundare despre aplicatie", expanded=False):
         _render_service_status(
@@ -210,7 +210,12 @@ def _render_current_map(
     st_folium = __import__("streamlit_folium").st_folium
     last_result = st.session_state.get("last_analysis_result")
     if last_result and last_result.get("maps"):
-        st_folium(last_result["maps"].main_map, use_container_width=True, height=760)
+        st_folium(
+            last_result["maps"].main_map,
+            use_container_width=True,
+            height=760,
+            key="primary-analysis-map",
+        )
         return
     overview_map = build_county_overview_map(
         counties_geojson,
@@ -218,7 +223,12 @@ def _render_current_map(
         params.bbox,
         selected_feature=selected_feature,
     )
-    st_folium(overview_map.main_map, use_container_width=True, height=760)
+    st_folium(
+        overview_map.main_map,
+        use_container_width=True,
+        height=760,
+        key=f"primary-overview-map-{params.county_name}",
+    )
 
 
 def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None, ee: Any) -> None:
@@ -390,6 +400,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "logger": logger,
             "report_paths": report_paths,
         }
+        st.rerun()
     except Exception as exc:
         logger.error(str(exc))
         _render_friendly_error(
