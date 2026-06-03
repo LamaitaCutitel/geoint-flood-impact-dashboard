@@ -89,16 +89,8 @@ def main() -> None:
     params.bbox = feature_bbox(feature)
     params.county_geometry = county_geometry(feature)
 
-    _render_service_status(
-        st,
-        counties_available=boundary_result.available,
-        gee_available=gee_available,
-        project_configured=bool(settings.gee_project_id),
-        last_analysis_available="last_analysis_result" in st.session_state,
-        last_analysis=st.session_state.get("last_analysis_result"),
-    )
-    _render_usage(st)
-    render_progress(st, startup_logger)
+    st.subheader("Harta interactiva")
+    map_slot = st.container()
 
     if boundary_result.warnings:
         _render_friendly_error(
@@ -133,16 +125,23 @@ def main() -> None:
             else:
                 _run_analysis(st, params, counties_geojson, gee_status.ee)
 
-    if "last_analysis_result" in st.session_state:
-        _render_analysis_result(st, st.session_state.last_analysis_result)
-    else:
-        overview_map = build_county_overview_map(
-            counties_geojson,
-            params.county_name,
-            params.bbox,
-            selected_feature=feature,
+    with map_slot:
+        _render_current_map(st, counties_geojson, feature, params)
+
+    with st.expander("Informatii secundare despre aplicatie", expanded=False):
+        _render_service_status(
+            st,
+            counties_available=boundary_result.available,
+            gee_available=bool(st.session_state.get("gee_available", gee_available)),
+            project_configured=bool(settings.gee_project_id),
+            last_analysis_available="last_analysis_result" in st.session_state,
+            last_analysis=st.session_state.get("last_analysis_result"),
         )
-        st_folium(overview_map.main_map, use_container_width=True, height=700)
+        _render_usage(st)
+        render_progress(st, st.session_state.get("analysis_logger", startup_logger))
+
+    if "last_analysis_result" in st.session_state:
+        _render_secondary_analysis_result(st, st.session_state.last_analysis_result)
 
 
 def _selected_county(st: Any, names: list[str]) -> str:
@@ -200,6 +199,26 @@ def _render_usage(st: Any) -> None:
 7. Descarca raportul.
 """
         )
+
+
+def _render_current_map(
+    st: Any,
+    counties_geojson: dict[str, Any] | None,
+    selected_feature: dict[str, Any] | None,
+    params: Any,
+) -> None:
+    st_folium = __import__("streamlit_folium").st_folium
+    last_result = st.session_state.get("last_analysis_result")
+    if last_result and last_result.get("maps"):
+        st_folium(last_result["maps"].main_map, use_container_width=True, height=760)
+        return
+    overview_map = build_county_overview_map(
+        counties_geojson,
+        params.county_name,
+        params.bbox,
+        selected_feature=selected_feature,
+    )
+    st_folium(overview_map.main_map, use_container_width=True, height=760)
 
 
 def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None, ee: Any) -> None:
@@ -448,29 +467,25 @@ def _layer_images(
     return layer_images
 
 
-def _render_analysis_result(st: Any, result: dict[str, Any]) -> None:
-    if SHOW_DEBUG_PANELS:
+def _render_secondary_analysis_result(st: Any, result: dict[str, Any]) -> None:
+    with st.expander("Rezultate si rapoarte", expanded=False):
         render_metric_cards(st, result["metrics"])
-    st_folium = __import__("streamlit_folium").st_folium
-    st_folium(result["maps"].main_map, use_container_width=True, height=650)
-    if SHOW_DEBUG_PANELS:
         render_land_cover(st, result["land_cover_stats"])
-        with st.expander("Rapoarte generate", expanded=False):
-            st.json({key: str(value) for key, value in result["report_paths"].items()})
-            st.download_button(
-                "Descarca raport JSON",
-                data=json.dumps(
-                    {
-                        "metrics": result["metrics"],
-                        "land_cover_statistics": result["land_cover_stats"],
-                        "methodological_note": METHODOLOGICAL_NOTE,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                ),
-                file_name="flood_impact_report.json",
-                mime="application/json",
-            )
+        st.json({key: str(value) for key, value in result["report_paths"].items()})
+        st.download_button(
+            "Descarca raport JSON",
+            data=json.dumps(
+                {
+                    "metrics": result["metrics"],
+                    "land_cover_statistics": result["land_cover_stats"],
+                    "methodological_note": METHODOLOGICAL_NOTE,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file_name="flood_impact_report.json",
+            mime="application/json",
+        )
 
 
 def _render_friendly_error(
