@@ -1,6 +1,7 @@
 import sys
+from pathlib import Path
 
-from src.gee.gee_auth import initialize_earth_engine
+from src.gee.gee_auth import has_local_earthengine_credentials, initialize_earth_engine
 from src.gee.sentinel1_collection import count_scenes
 
 
@@ -17,6 +18,18 @@ def test_initialize_earth_engine_without_package(monkeypatch):
     result = initialize_earth_engine(interactive=False)
     assert result.available is False
     assert "earthengine-api" in result.message
+
+
+def test_local_credentials_permission_error_counts_as_present(monkeypatch):
+    class _BlockedPath:
+        def __truediv__(self, _):
+            return self
+
+        def exists(self):
+            raise PermissionError("blocked")
+
+    monkeypatch.setattr(Path, "home", lambda: _BlockedPath())
+    assert has_local_earthengine_credentials() is True
 
 
 class _BrokenCollection:

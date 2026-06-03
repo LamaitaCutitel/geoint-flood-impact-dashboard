@@ -26,7 +26,7 @@ from src.gee.dynamic_world import (
     land_cover_intersection_stats,
     summarize_land_cover,
 )
-from src.gee.gee_auth import AUTH_COMMANDS, initialize_earth_engine
+from src.gee.gee_auth import AUTH_COMMANDS, initialize_earth_engine, local_earthengine_status
 from src.gee.permanent_water import permanent_water_mask
 from src.gee.sar_flood_detection import detect_flood_extent
 from src.gee.sar_preprocessing import build_before_after_composites
@@ -61,7 +61,8 @@ def main() -> None:
     geometry = county_geometry(feature)
 
     settings = load_settings()
-    gee_available = bool(st.session_state.get("gee_available", False))
+    local_gee = local_earthengine_status()
+    gee_available = bool(st.session_state.get("gee_available", local_gee.available))
     analysis_can_start = bool(settings.gee_project_id)
 
     startup_logger = bootstrap_startup_logger(
@@ -107,6 +108,8 @@ def main() -> None:
     if not gee_available:
         st.warning(GEE_NOT_READY_MESSAGE)
         st.code("\n".join(AUTH_COMMANDS), language="powershell")
+    else:
+        st.info(local_gee.message)
 
     st.subheader(f"Judet selectat: {params.county_name}")
     overview_map = build_county_overview_map(counties_geojson, params.county_name, params.bbox)
