@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
+import unicodedata
 from urllib.request import urlopen
 
 from config.settings import PROJECT_ROOT
@@ -80,7 +81,17 @@ def county_names(geojson: dict[str, Any]) -> list[str]:
 def county_display_name(feature: dict[str, Any]) -> str:
     props = feature.get("properties", {})
     raw_name = props.get("NAME_LATN") or props.get("NUTS_NAME") or props.get("NAME") or "Necunoscut"
-    return COUNTY_NAME_FIXES.get(raw_name, raw_name)
+    return normalize_county_name(raw_name)
+
+
+def normalize_county_name(raw_name: str | None) -> str:
+    if not raw_name:
+        return ""
+    if raw_name in COUNTY_NAME_FIXES:
+        return COUNTY_NAME_FIXES[raw_name]
+    raw_name = raw_name.replace("Å£", "t").replace("ÅŸ", "s").replace("Äƒ", "a")
+    ascii_name = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    return COUNTY_NAME_FIXES.get(ascii_name, ascii_name)
 
 
 def selected_county_feature(geojson: dict[str, Any], county_name: str) -> dict[str, Any] | None:

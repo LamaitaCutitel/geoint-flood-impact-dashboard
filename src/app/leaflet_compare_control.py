@@ -17,9 +17,12 @@ class DynamicCompareControl(MacroElement):
           var layers = {{ this.layers_json }};
           if (!layers.length) { return; }
 
-          if (!window.L.control.sideBySide) {
+          if (!window.__leafletSideBySideLoading && !window.L.control.sideBySide) {
+            window.__leafletSideBySideLoading = true;
             var script = document.createElement('script');
             script.src = 'https://cdn.jsdelivr.net/npm/leaflet-side-by-side@2.2.0/leaflet-side-by-side.min.js';
+            script.onload = function() { window.__leafletSideBySideLoading = false; };
+            script.onerror = function() { window.__leafletSideBySideLoading = false; };
             document.head.appendChild(script);
           }
 
@@ -71,11 +74,19 @@ class DynamicCompareControl(MacroElement):
               clearCompare();
               var leftItem = layers[parseInt(left.value)];
               var rightItem = layers[parseInt(right.value)];
+              if (!leftItem || !rightItem) { return; }
               leftLayer = makeLayer(leftItem).addTo(map);
               rightLayer = makeLayer(rightItem).addTo(map);
               var waitForPlugin = function() {
                 if (window.L.control.sideBySide) {
                   compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(map);
+                  setTimeout(function() {
+                    var range = document.querySelector('.leaflet-sbs-range');
+                    if (range) {
+                      range.style.zIndex = 1000;
+                      range.style.pointerEvents = 'auto';
+                    }
+                  }, 50);
                 } else {
                   setTimeout(waitForPlugin, 150);
                 }
@@ -87,6 +98,9 @@ class DynamicCompareControl(MacroElement):
             swap.onclick = startCompare;
             stop.onclick = clearCompare;
             L.DomEvent.disableClickPropagation(container);
+            {% if this.auto_start %}
+            setTimeout(startCompare, 300);
+            {% endif %}
           }
 
           var control = L.control({position: 'topright'});
@@ -97,6 +111,7 @@ class DynamicCompareControl(MacroElement):
             div.style.maxWidth = '260px';
             div.style.fontSize = '12px';
             div.style.boxShadow = '0 1px 6px rgba(0,0,0,.25)';
+            div.style.lineHeight = '1.35';
             div.querySelectorAll = div.querySelectorAll || function(){ return []; };
             renderControl(div);
             return div;
@@ -107,17 +122,31 @@ class DynamicCompareControl(MacroElement):
         """
     )
 
-    def __init__(self, registry: LayerRegistry) -> None:
+    def __init__(self, registry: LayerRegistry, auto_start: bool = False) -> None:
         super().__init__()
         self._name = "DynamicCompareControl"
-        self.layers_json = json.dumps(
-            [
+        layers = [
                 {
                     "id": layer.id,
                     "display_name": layer.display_name,
                     "tile_url": layer.tile_url,
                 }
                 for layer in registry.comparable_layers()
-            ],
+            ]
+        if auto_start:
+            layers = _sar_first(layers)
+        self.layers_json = json.dumps(
+            layers,
             ensure_ascii=False,
         )
+        self.auto_start = auto_start
+
+
+def _sar_first(layers: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
+    by_id = {layer["id"]: layer for layer in layers}
+    before = by_id.get("sar_before")
+    after = by_id.get("sar_after")
+    if not before or not after:
+        return layers
+    rest = [layer for layer in layers if layer["id"] not in {"sar_before", "sar_after"}]
+    return [before, after, *rest]

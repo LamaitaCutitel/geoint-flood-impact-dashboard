@@ -32,6 +32,7 @@ class AnalysisParameters:
     show_sar_after: bool = True
     show_sar_change: bool = True
     show_detected_flood_extent: bool = True
+    use_median_composite: bool = False
     comparison_preset: str = "Before SAR vs After SAR"
     left_layer: str = "Sentinel-1 SAR before"
     right_layer: str = "Sentinel-1 SAR after"

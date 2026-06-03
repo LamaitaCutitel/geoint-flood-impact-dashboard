@@ -65,7 +65,7 @@ def sidebar_parameters(
     county_geometry: dict | None,
     county_bbox: list[float],
     gee_available: bool,
-) -> tuple[AnalysisParameters, bool]:
+) -> tuple[AnalysisParameters, bool, bool]:
     with st.sidebar:
         st.header("Configurare analiza")
 
@@ -79,6 +79,10 @@ def sidebar_parameters(
                 index=county_index,
                 help="Judetul selectat este folosit ca AOI pentru analiza SAR.",
             )
+            previous_county = st.session_state.get("selected_county")
+            if previous_county and previous_county != county_name:
+                st.session_state.county_focus_requested = True
+                st.session_state.pop("last_analysis_result", None)
             st.session_state.selected_county = county_name
             st.selectbox(
                 "Preset eveniment",
@@ -166,6 +170,14 @@ def sidebar_parameters(
                     value=PROFILE_SCALES[scale_key],
                     help="Rezolutia de calcul trimisa catre Google Earth Engine.",
                 )
+                use_median = st.checkbox(
+                    "Foloseste compozit median in locul scenelor individuale",
+                    value=False,
+                    help=(
+                        "Optiune avansata. Cand este dezactivata, analiza finala foloseste scena "
+                        "BEFORE si scena AFTER selectate manual in exploratorul temporal."
+                    ),
+                )
 
             with st.expander("E. Layere", expanded=False):
                 show_before = st.checkbox("SAR before", True)
@@ -176,11 +188,23 @@ def sidebar_parameters(
                 show_land = st.checkbox("Dynamic World", True)
                 show_s2 = st.checkbox("Sentinel-2 RGB auxiliar", False)
 
-            run_analysis = st.form_submit_button(
-                "Ruleaza analiza SAR",
-                type="primary",
+            pair_status = st.session_state.get("sar_pair_status") or {}
+            final_disabled = (
+                not gee_available
+                or not county_geometry
+                or not pair_status.get("compatible")
+                or (pair_status.get("requires_confirmation") and not st.session_state.get("confirm_relative_orbit_mismatch"))
+            )
+            search_images = st.form_submit_button(
+                "Cauta imagini disponibile",
                 use_container_width=True,
                 disabled=not gee_available or not county_geometry,
+            )
+            run_analysis = st.form_submit_button(
+                "Ruleaza analiza finala pe imaginile selectate",
+                type="primary",
+                use_container_width=True,
+                disabled=final_disabled,
             )
             if not gee_available:
                 st.warning(
@@ -213,10 +237,11 @@ def sidebar_parameters(
         show_sar_after=show_after,
         show_sar_change=show_change,
         show_detected_flood_extent=show_flood,
+        use_median_composite=use_median,
         comparison_preset="Compara doua layere in harta",
         left_layer="Sentinel-1 SAR before",
         right_layer="Sentinel-1 SAR after",
     )
     if run_analysis:
         st.session_state.last_analysis_params = params.as_dict()
-    return params, run_analysis
+    return params, search_images, run_analysis

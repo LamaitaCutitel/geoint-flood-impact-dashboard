@@ -18,6 +18,23 @@ def dynamic_world_mode(ee: Any, aoi: Any, start_date: str, end_date: str) -> Any
     )
 
 
+def dynamic_world_change_map(ee: Any, before: Any, after: Any, aoi: Any) -> Any:
+    water_class = 0
+    no_change = before.eq(after)
+    new_water = after.eq(water_class).And(before.neq(water_class))
+    water_loss = before.eq(water_class).And(after.neq(water_class))
+    other_change = before.neq(after).And(new_water.Not()).And(water_loss.Not())
+    return (
+        ee.Image(0)
+        .where(no_change, 1)
+        .where(other_change, 2)
+        .where(water_loss, 3)
+        .where(new_water, 4)
+        .rename("land_cover_changes")
+        .clip(aoi)
+    )
+
+
 def land_cover_intersection_stats(
     ee: Any,
     land_cover: Any,

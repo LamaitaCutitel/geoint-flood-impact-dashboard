@@ -16,6 +16,7 @@ class LayerEntry:
     warning: str | None = None
     tile_url: str | None = None
     folium_layer: Any | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_report_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -38,6 +39,7 @@ class LayerRegistry:
         layer_type: str,
         warning: str,
         comparable: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self.add(
             LayerEntry(
@@ -48,6 +50,7 @@ class LayerRegistry:
                 available=False,
                 comparable=comparable,
                 warning=warning,
+                metadata=metadata,
             )
         )
 

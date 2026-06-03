@@ -53,7 +53,11 @@ VIS_PARAMS = {
         "max": 8,
         "palette": ["419bdf", "397d49", "88b053", "7a87c6", "e49635", "dfc35a", "c4281b", "a59b8f", "b39fe1"],
     },
-    "Land cover changes": {"min": 0, "max": 8, "palette": ["f8fafc", "fb7185", "facc15", "22c55e", "38bdf8"]},
+    "Land cover changes": {
+        "min": 1,
+        "max": 4,
+        "palette": ["e5e7eb", "facc15", "fb7185", "0284c7"],
+    },
     "DEM": {"min": 0, "max": 1200, "palette": ["0f766e", "fef3c7", "7c2d12"]},
     "Hillshade": {"min": 0, "max": 255, "palette": ["111827", "f8fafc"]},
     "Slope": {"min": 0, "max": 35, "palette": ["f8fafc", "facc15", "dc2626"]},
