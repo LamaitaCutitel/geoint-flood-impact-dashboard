@@ -55,10 +55,14 @@ Adaugati capturi dupa prima rulare locala:
 
 ## Instalare Rapida
 
+Recomandat: Python 3.12 sau 3.13. Evita Python 3.14 pentru aceasta versiune,
+deoarece unele pachete geospatiale cu extensii native pot avea roti binare
+incompatibile.
+
 ```powershell
 git clone https://github.com/LamaitaCutitel/geoint-flood-impact-dashboard.git
 cd geoint-flood-impact-dashboard
-python -m venv .venv
+py -3.12 -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
