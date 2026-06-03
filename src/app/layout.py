@@ -38,11 +38,6 @@ def configure_page(st) -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.title("Dashboard GEOINT pentru analiza preliminara a inundatiilor")
-    st.caption(
-        "Analiza Sentinel-1 SAR, procesare cloud in Google Earth Engine si evaluarea "
-        "tipurilor de teren intersectate."
-    )
 
 
 def render_usage(st) -> None:

@@ -17,10 +17,10 @@ from src.app.county_boundaries import (
     load_or_download_counties,
     selected_county_feature,
 )
-from src.app.layout import configure_page, render_usage, sidebar_parameters
+from src.app.layout import configure_page, sidebar_parameters
 from src.app.map_builder import build_county_overview_map, build_maps
-from src.app.progress_logger import ProgressLogger, bootstrap_startup_logger, render_progress
-from src.app.results_panel import render_land_cover, render_methodological_note, render_metric_cards
+from src.app.progress_logger import ProgressLogger
+from src.app.results_panel import render_land_cover, render_metric_cards
 from src.gee.dynamic_world import (
     dynamic_world_mode,
     land_cover_intersection_stats,
@@ -45,6 +45,8 @@ GEE_NOT_READY_MESSAGE = (
     "GEE_PROJECT_ID in fisierul .env."
 )
 
+SHOW_DEBUG_PANELS = False
+
 
 def main() -> None:
     import streamlit as st
@@ -65,14 +67,6 @@ def main() -> None:
     gee_available = bool(st.session_state.get("gee_available", local_gee.available))
     analysis_can_start = bool(settings.gee_project_id)
 
-    startup_logger = bootstrap_startup_logger(
-        st,
-        county_count=len(names),
-        warnings=boundary_result.warnings,
-        gee_available=gee_available,
-        project_configured=bool(settings.gee_project_id),
-    )
-
     params, run_analysis = sidebar_parameters(
         st,
         county_names=names,
@@ -86,15 +80,14 @@ def main() -> None:
     params.bbox = feature_bbox(feature)
     params.county_geometry = county_geometry(feature)
 
-    _render_service_status(
-        st,
-        counties_available=boundary_result.available,
-        gee_available=gee_available,
-        project_configured=bool(settings.gee_project_id),
-        last_analysis_available="last_analysis_result" in st.session_state,
-    )
-    render_usage(st)
-    render_progress(st, startup_logger)
+    if SHOW_DEBUG_PANELS:
+        _render_service_status(
+            st,
+            counties_available=boundary_result.available,
+            gee_available=gee_available,
+            project_configured=bool(settings.gee_project_id),
+            last_analysis_available="last_analysis_result" in st.session_state,
+        )
 
     if boundary_result.warnings:
         _render_friendly_error(
@@ -108,10 +101,9 @@ def main() -> None:
     if not gee_available:
         st.warning(GEE_NOT_READY_MESSAGE)
         st.code("\n".join(AUTH_COMMANDS), language="powershell")
-    else:
+    elif SHOW_DEBUG_PANELS:
         st.info(local_gee.message)
 
-    st.subheader(f"Judet selectat: {params.county_name}")
     overview_map = build_county_overview_map(counties_geojson, params.county_name, params.bbox)
     st_folium(overview_map, use_container_width=True, height=650)
 
@@ -135,8 +127,6 @@ def main() -> None:
 
     if "last_analysis_result" in st.session_state:
         _render_analysis_result(st, st.session_state.last_analysis_result)
-
-    render_methodological_note(st)
 
 
 def _selected_county(st: Any, names: list[str]) -> str:
@@ -180,7 +170,6 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
     logger = ProgressLogger()
     st.session_state.analysis_logger = logger
     logger.log(2, f"Analiza pornita pentru judetul selectat: {params.county_name}.")
-    render_progress(st, logger)
 
     try:
         logger.log(8, "Se construieste AOI-ul judetului.")
@@ -309,7 +298,6 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "Verifica autentificarea GEE, intervalele de date si orbit pass. Pentru lipsa scenelor, largeste intervalele.",
             repr(exc),
         )
-        render_progress(st, logger)
 
 
 def _layer_images(
@@ -343,33 +331,32 @@ def _layer_images(
 
 
 def _render_analysis_result(st: Any, result: dict[str, Any]) -> None:
-    render_metric_cards(st, result["metrics"])
-    st.subheader("Harta dupa analiza judetului")
+    if SHOW_DEBUG_PANELS:
+        render_metric_cards(st, result["metrics"])
     st_folium = __import__("streamlit_folium").st_folium
     st_folium(result["maps"].main_map, use_container_width=True, height=650)
     if result["maps"].comparison_map:
-        st.subheader("Slider before / after")
         if result["maps"].fallback_reason:
             st.info(result["maps"].fallback_reason)
         st_folium(result["maps"].comparison_map, use_container_width=True, height=650)
-    render_land_cover(st, result["land_cover_stats"])
-    render_progress(st, result["logger"])
-    with st.expander("Rapoarte generate", expanded=False):
-        st.json({key: str(value) for key, value in result["report_paths"].items()})
-        st.download_button(
-            "Descarca raport JSON",
-            data=json.dumps(
-                {
-                    "metrics": result["metrics"],
-                    "land_cover_statistics": result["land_cover_stats"],
-                    "methodological_note": METHODOLOGICAL_NOTE,
-                },
-                indent=2,
-                ensure_ascii=False,
-            ),
-            file_name="flood_impact_report.json",
-            mime="application/json",
-        )
+    if SHOW_DEBUG_PANELS:
+        render_land_cover(st, result["land_cover_stats"])
+        with st.expander("Rapoarte generate", expanded=False):
+            st.json({key: str(value) for key, value in result["report_paths"].items()})
+            st.download_button(
+                "Descarca raport JSON",
+                data=json.dumps(
+                    {
+                        "metrics": result["metrics"],
+                        "land_cover_statistics": result["land_cover_stats"],
+                        "methodological_note": METHODOLOGICAL_NOTE,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                file_name="flood_impact_report.json",
+                mime="application/json",
+            )
 
 
 def _render_friendly_error(
