@@ -36,6 +36,7 @@ analize rapide.
 - O singura harta interactiva folosita pentru selectia judetului, explorarea temporala SAR si rezultatele finale.
 - Explorator temporal Sentinel-1 SAR pentru cautarea scenelor disponibile fara rularea analizei finale.
 - Selectie manuala a perechii SAR BEFORE/AFTER, cu validare de compatibilitate.
+- Comparatie vizuala a candidatilor BEFORE/AFTER inainte de analiza finala, fara flood detection.
 - Harta initiala a Romaniei disponibila imediat, chiar fara Google Earth Engine.
 - Dropdown pentru selectarea judetului, implicit `Galati`.
 - Harta porneste centrat pe Romania; dupa selectie, click pe judet sau dropdown, face zoom pe judetul selectat.
@@ -46,6 +47,8 @@ analize rapide.
 - Analiza finala foloseste implicit scenele individuale selectate manual; compozitul median ramane optiune avansata dezactivata implicit.
 - Sentinel-2 RGB si indici NDWI, MNDWI, NDVI, NDMI pentru before/after si diferente.
 - Dynamic World before/after, diferente observate intre compozitele analizate si terenuri intersectate.
+- Dynamic World apa noua, pierdere apa si intersectie cu extinderea preliminara SAR.
+- Masca JRC configurabila: Conservator, Echilibrat sau Extins.
 - DEM SRTM, hillshade si slope ca layere auxiliare.
 - Profile de analiza: Rapid preview, Standard, Detailed export.
 - Layer registry central pentru LayerControl, raport si comparatii.
@@ -99,8 +102,9 @@ Aplicatia foloseste o singura harta Folium/Leaflet. La pornire, harta afiseaza
 judetele Romaniei pe un basemap color, centrata pe Romania. Selectia se poate face
 prin click pe judet sau din dropdown; dupa selectie, harta se centreaza pe judetul
 selectat. Dupa cautarea Sentinel-1, aceeasi harta afiseaza doar scena curenta din
-timeline, decupata dupa geometria judetului. Dupa analiza finala, aceeasi harta
-primeste layere GEE decupate dupa geometria judetului selectat:
+timeline sau perechea candidata BEFORE/AFTER, decupata dupa geometria judetului.
+Dupa analiza finala, aceeasi harta primeste layere GEE decupate dupa geometria
+judetului selectat:
 
 - Sentinel-1 SAR before, after, diferenta, raport si extindere preliminara detectata.
 - Sentinel-2 RGB before/after si indici NDWI, MNDWI, NDVI, NDMI.

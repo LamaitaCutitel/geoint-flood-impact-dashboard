@@ -1,4 +1,6 @@
-from src.gee.sentinel1_scene_explorer import validate_scene_pair
+from datetime import date
+
+from src.gee.sentinel1_scene_explorer import scene_recommendation_labels, validate_scene_pair
 
 
 def _scene(**overrides):
@@ -47,3 +49,27 @@ def test_validate_scene_pair_warns_on_relative_orbit_only():
 
     assert status["compatible"] is True
     assert status["requires_confirmation"] is True
+
+
+def test_validate_scene_pair_warns_on_low_coverage_without_blocking():
+    before = _scene(acquisition_time="2024-09-01T16:27:00+00:00", coverage_percent=85)
+    after = _scene(acquisition_time="2024-09-14T16:27:00+00:00", coverage_percent=91)
+
+    status = validate_scene_pair(before, after)
+
+    assert status["compatible"] is True
+    assert any("acoperire AOI" in warning for warning in status["warnings"])
+
+
+def test_recommendations_use_event_date():
+    scenes = [
+        _scene(ee_id="before_far", display_id="before_far", acquisition_time="2024-08-21T16:27:00+00:00"),
+        _scene(ee_id="before_near", display_id="before_near", acquisition_time="2024-09-13T16:27:00+00:00"),
+        _scene(ee_id="after_near", display_id="after_near", acquisition_time="2024-09-15T16:27:00+00:00"),
+    ]
+
+    labels_before = scene_recommendation_labels(scenes[1], scenes, None, None, date(2024, 9, 14))
+    labels_after = scene_recommendation_labels(scenes[2], scenes, None, None, date(2024, 9, 14))
+
+    assert "Recomandat BEFORE" in labels_before
+    assert "Recomandat AFTER" in labels_after

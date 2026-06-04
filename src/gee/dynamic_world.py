@@ -35,6 +35,36 @@ def dynamic_world_change_map(ee: Any, before: Any, after: Any, aoi: Any) -> Any:
     )
 
 
+def dynamic_world_water_change_masks(before: Any, after: Any, flood_mask: Any, aoi: Any) -> dict[str, Any]:
+    water_class = 0
+    new_water = after.eq(water_class).And(before.neq(water_class)).selfMask().clip(aoi)
+    water_loss = before.eq(water_class).And(after.neq(water_class)).selfMask().clip(aoi)
+    other_change = before.neq(after).And(new_water.Not()).And(water_loss.Not()).selfMask().clip(aoi)
+    sar_new_water_intersection = flood_mask.updateMask(new_water).selfMask().clip(aoi)
+    return {
+        "dynamic_world_new_water": new_water,
+        "dynamic_world_water_loss": water_loss,
+        "dynamic_world_other_change": other_change,
+        "sar_dynamic_world_new_water_intersection": sar_new_water_intersection,
+    }
+
+
+def mask_area_km2(ee: Any, mask: Any, aoi: Any, scale: int) -> float:
+    try:
+        area_image = mask.multiply(ee.Image.pixelArea())
+        stats = area_image.reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=aoi,
+            scale=scale,
+            maxPixels=1e9,
+            bestEffort=True,
+        ).getInfo()
+        area_sqm = next(iter(stats.values()), 0) if stats else 0
+        return square_meters_to_square_kilometers(area_sqm)
+    except Exception:
+        return 0.0
+
+
 def land_cover_intersection_stats(
     ee: Any,
     land_cover: Any,

@@ -68,8 +68,10 @@ def sidebar_parameters(
 ) -> tuple[AnalysisParameters, bool, bool]:
     with st.sidebar:
         st.header("Configurare analiza")
+        presentation_mode = st.toggle("Mod prezentare", value=False)
+        st.session_state.presentation_mode = presentation_mode
 
-        with st.expander("A. Zona de analiza", expanded=True):
+        with st.expander("Mod simplu", expanded=True):
             if selected_county not in county_names and county_names:
                 selected_county = county_names[0]
             county_index = county_names.index(selected_county) if selected_county in county_names else 0
@@ -113,8 +115,13 @@ def sidebar_parameters(
                     GALATI_PRESET["after_end_date"],
                     help="Perioada after reprezinta intervalul in care este analizata extinderea preliminara a apei.",
                 )
+                event_date = st.date_input(
+                    "Data evenimentului",
+                    GALATI_PRESET["event_date"],
+                    help="Data folosita pentru recomandarea automata a scenelor BEFORE si AFTER.",
+                )
 
-            with st.expander("C. Parametri Sentinel-1 SAR", expanded=True):
+            with st.expander("Setari avansate SAR", expanded=not presentation_mode):
                 polarization = st.radio(
                     "Polarizare",
                     ["VH", "VV"],
@@ -155,8 +162,16 @@ def sidebar_parameters(
                     value=True,
                     help="Elimina corpurile de apa permanente folosind JRC Global Surface Water, astfel incat rezultatul sa evidentieze mai bine apa temporara.",
                 )
+                jrc_mode = st.selectbox(
+                    "Mod masca JRC",
+                    ["Echilibrat", "Conservator", "Extins"],
+                    help=(
+                        "Conservator: occurrence >= 90. Echilibrat: occurrence >= 75. "
+                        "Extins: occurrence >= 50 sau seasonality >= 10 luni/an."
+                    ),
+                )
 
-            with st.expander("D. Performanta", expanded=True):
+            with st.expander("Performanta si compozit", expanded=not presentation_mode):
                 profile = st.selectbox(
                     "Profil analiza",
                     ["Rapid preview", "Standard", "Detailed"],
@@ -179,7 +194,7 @@ def sidebar_parameters(
                     ),
                 )
 
-            with st.expander("E. Layere", expanded=False):
+            with st.expander("Layere optionale", expanded=False):
                 show_before = st.checkbox("SAR before", True)
                 show_after = st.checkbox("SAR after", True)
                 show_change = st.checkbox("SAR change", True)
@@ -193,6 +208,7 @@ def sidebar_parameters(
                 not gee_available
                 or not county_geometry
                 or not pair_status.get("compatible")
+                or not st.session_state.get("sar_pair_confirmed")
                 or (pair_status.get("requires_confirmation") and not st.session_state.get("confirm_relative_orbit_mismatch"))
             )
             search_images = st.form_submit_button(
@@ -218,6 +234,7 @@ def sidebar_parameters(
         county_name=county_name,
         county_geometry=county_geometry,
         bbox=county_bbox,
+        event_date=event_date,
         before_start_date=before_start,
         before_end_date=before_end,
         after_start_date=after_start,
@@ -228,6 +245,7 @@ def sidebar_parameters(
         threshold=threshold,
         minimum_connected_pixels=minimum_connected,
         mask_permanent_water=mask_permanent,
+        jrc_water_mode=jrc_mode,
         analysis_profile=profile,
         scale=scale,
         show_permanent_water=show_permanent,

@@ -23,6 +23,7 @@ class AnalysisParameters:
     threshold: float = 1.25
     minimum_connected_pixels: int = 8
     mask_permanent_water: bool = True
+    jrc_water_mode: str = "Echilibrat"
     analysis_profile: str = "Standard"
     scale: int = PROFILE_SCALES["Standard"]
     show_permanent_water: bool = True

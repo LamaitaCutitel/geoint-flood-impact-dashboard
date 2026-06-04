@@ -5,7 +5,7 @@ from typing import Any
 
 import folium
 from branca.element import MacroElement
-from folium.plugins import SideBySideLayers
+from folium.plugins import Fullscreen, MeasureControl, SideBySideLayers
 from jinja2 import Template
 
 from src.app.county_boundaries import bbox_center, county_display_name, zoom_for_bbox
@@ -26,12 +26,15 @@ class MapBundle:
 
 
 def _base_map(center: list[float] | None = None, zoom: int | None = None) -> folium.Map:
-    return folium.Map(
+    folium_map = folium.Map(
         location=center or ROMANIA_CENTER,
         zoom_start=zoom or ROMANIA_ZOOM,
         tiles="OpenStreetMap",
         control_scale=True,
     )
+    Fullscreen(position="topleft").add_to(folium_map)
+    MeasureControl(position="topleft", primary_length_unit="kilometers").add_to(folium_map)
+    return folium_map
 
 
 def add_counties_layer(
@@ -48,11 +51,11 @@ def add_counties_layer(
             "color": "#dc2626" if is_selected else "#334155",
             "weight": 3 if is_selected else 1,
             "fillColor": "#ffffff" if is_selected else "#38bdf8",
-            "fillOpacity": 0 if is_selected else 0.13,
+            "fillOpacity": 0,
         }
 
     def highlight_function(_: dict[str, Any]) -> dict[str, Any]:
-        return {"weight": 3, "color": "#0f172a", "fillOpacity": 0.18}
+        return {"weight": 3, "color": "#0f172a", "fillOpacity": 0.08}
 
     folium.GeoJson(
         counties_geojson,
@@ -129,6 +132,104 @@ def build_sar_preview_map(
     add_preview_legend(folium_map, scene)
     folium.LayerControl(collapsed=False).add_to(folium_map)
     return MapBundle(main_map=folium_map)
+
+
+def build_sar_candidate_compare_map(
+    before_tile_url: str,
+    after_tile_url: str,
+    before_scene: dict[str, Any],
+    after_scene: dict[str, Any],
+    params: Any,
+    counties_geojson: dict[str, Any] | None = None,
+    selected_feature: dict[str, Any] | None = None,
+) -> MapBundle:
+    center = bbox_center(params.bbox)
+    zoom = zoom_for_bbox(params.bbox)
+    folium_map = _base_map(center, zoom)
+    add_counties_layer(folium_map, counties_geojson, params.county_name)
+    add_selected_county_layer(folium_map, selected_feature)
+    before_layer = folium.TileLayer(
+        tiles=before_tile_url,
+        attr="Google Earth Engine",
+        name=f"Explorare SAR - candidat BEFORE {before_scene.get('display_id')}",
+        overlay=True,
+        control=True,
+        show=True,
+    )
+    after_layer = folium.TileLayer(
+        tiles=after_tile_url,
+        attr="Google Earth Engine",
+        name=f"Explorare SAR - candidat AFTER {after_scene.get('display_id')}",
+        overlay=True,
+        control=True,
+        show=True,
+    )
+    before_layer.add_to(folium_map)
+    after_layer.add_to(folium_map)
+    SideBySideLayers(before_layer, after_layer).add_to(folium_map)
+    folium_map.fit_bounds([[params.bbox[1], params.bbox[0]], [params.bbox[3], params.bbox[2]]])
+    add_candidate_compare_legend(folium_map, before_scene, after_scene)
+    folium.LayerControl(collapsed=False).add_to(folium_map)
+    return MapBundle(main_map=folium_map)
+
+
+def add_candidate_compare_legend(
+    folium_map: folium.Map,
+    before_scene: dict[str, Any],
+    after_scene: dict[str, Any],
+) -> None:
+    _CandidateCompareLegend(before_scene, after_scene).add_to(folium_map)
+
+
+class _CandidateCompareLegend(MacroElement):
+    _template = Template(
+        """
+        {% macro html(this, kwargs) %}
+        <div class="map-data-legend">
+          <div class="legend-title">Comparatie candidate SAR</div>
+          <div>Stanga: Sentinel-1 - {{ this.before_time }}</div>
+          <div>Dreapta: Sentinel-1 - {{ this.after_time }}</div>
+          <div>Nu ruleaza analiza finala.</div>
+        </div>
+        <style>
+          .map-data-legend {
+            position: fixed;
+            left: 18px;
+            bottom: 24px;
+            z-index: 9999;
+            max-height: 360px;
+            max-width: 360px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid rgba(15, 23, 42, 0.18);
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18);
+            color: #0f172a;
+            font: 12px/1.35 Arial, sans-serif;
+            padding: 10px 12px;
+          }
+          .legend-title { font-weight: 700; margin-bottom: 6px; }
+          .leaflet-sbs-divider {
+            background: #f8fafc !important;
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7), 0 0 10px rgba(15, 23, 42, 0.45) !important;
+            width: 4px !important;
+            z-index: 999 !important;
+          }
+          .leaflet-sbs-range {
+            z-index: 1000 !important;
+            pointer-events: auto !important;
+            cursor: ew-resize !important;
+          }
+        </style>
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, before_scene: dict[str, Any], after_scene: dict[str, Any]) -> None:
+        super().__init__()
+        self._name = "CandidateCompareLegend"
+        self.before_time = before_scene.get("acquisition_time", "necunoscut")
+        self.after_time = after_scene.get("acquisition_time", "necunoscut")
 
 
 def add_preview_legend(folium_map: folium.Map, scene: dict[str, Any]) -> None:

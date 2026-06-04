@@ -20,6 +20,7 @@ class Sentinel1Scene:
     resolution_meters: float | None
     coverage_percent: float
     warnings: list[str]
+    thumbnail_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -86,7 +87,7 @@ def validate_scene_pair(before: dict[str, Any] | None, after: dict[str, Any] | N
         warnings.append("Orbita relativa difera; comparatia poate produce diferente geometrice.")
     for role, scene in (("BEFORE", before), ("AFTER", after)):
         if float(scene.get("coverage_percent") or 0) < 90:
-            errors.append(f"Scena {role} are acoperire insuficienta a judetului.")
+            warnings.append(f"Scena {role} are acoperire AOI sub 90%: {scene.get('coverage_percent')}%.")
     return {
         "compatible": not errors,
         "requires_confirmation": not errors and bool(warnings),
@@ -100,26 +101,29 @@ def scene_recommendation_labels(
     scenes: list[dict[str, Any]],
     selected_before: dict[str, Any] | None,
     selected_after: dict[str, Any] | None,
+    event_date: Any | None = None,
 ) -> list[str]:
     labels: list[str] = []
     if float(scene.get("coverage_percent") or 0) < 90:
         labels.append("Acoperire incompleta")
     if selected_before and scene["acquisition_time"] > selected_before["acquisition_time"]:
         if _soft_compatible(selected_before, scene):
-            labels.append("Compatibil cu scena selectata")
+            labels.append("Compatibil")
         else:
-            labels.append("Orbita incompatibila")
+            labels.append("Orbita diferita")
     if selected_after and scene["acquisition_time"] < selected_after["acquisition_time"]:
         if _soft_compatible(scene, selected_after):
-            labels.append("Compatibil cu scena selectata")
+            labels.append("Compatibil")
         else:
-            labels.append("Orbita incompatibila")
-    before_candidate = _best_before(scenes)
-    after_candidate = _best_after(scenes)
+            labels.append("Orbita diferita")
+    if event_date and _is_close_to_event(scene, event_date):
+        labels.append("Imagine apropiata de eveniment")
+    before_candidate = _best_before(scenes, event_date, selected_after)
+    after_candidate = _best_after(scenes, event_date, selected_before)
     if before_candidate and before_candidate["ee_id"] == scene["ee_id"]:
-        labels.append("Recomandat pentru BEFORE")
+        labels.append("Recomandat BEFORE")
     if after_candidate and after_candidate["ee_id"] == scene["ee_id"]:
-        labels.append("Recomandat pentru AFTER")
+        labels.append("Recomandat AFTER")
     return labels
 
 
@@ -146,6 +150,7 @@ def _scene_from_feature(feature: dict[str, Any], polarization: str) -> Sentinel1
         resolution_meters=_safe_float(props.get("resolution_meters") or props.get("resolution")),
         coverage_percent=coverage,
         warnings=warnings,
+        thumbnail_url=None,
     )
 
 
@@ -175,23 +180,60 @@ def _soft_compatible(before: dict[str, Any], after: dict[str, Any]) -> bool:
     )
 
 
-def _best_before(scenes: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _best_before(
+    scenes: list[dict[str, Any]],
+    event_date: Any | None = None,
+    selected_after: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if not scenes:
         return None
-    midpoint = len(scenes) // 2
-    candidates = scenes[:midpoint] or scenes[:1]
-    return max(candidates, key=_recommendation_score)
+    event_key = _event_date_key(event_date)
+    candidates = [scene for scene in scenes if not event_key or scene["acquisition_time"][:10] <= event_key]
+    candidates = candidates or scenes
+    return max(candidates, key=lambda scene: _recommendation_score(scene, event_key, selected_after))
 
 
-def _best_after(scenes: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _best_after(
+    scenes: list[dict[str, Any]],
+    event_date: Any | None = None,
+    selected_before: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if not scenes:
         return None
-    midpoint = len(scenes) // 2
-    candidates = scenes[midpoint:] or scenes[-1:]
-    return max(candidates, key=_recommendation_score)
+    event_key = _event_date_key(event_date)
+    candidates = [scene for scene in scenes if not event_key or scene["acquisition_time"][:10] >= event_key]
+    candidates = candidates or scenes
+    return max(candidates, key=lambda scene: _recommendation_score(scene, event_key, selected_before))
 
 
-def _recommendation_score(scene: dict[str, Any]) -> tuple[float, int]:
+def _recommendation_score(
+    scene: dict[str, Any],
+    event_key: str | None = None,
+    paired_scene: dict[str, Any] | None = None,
+) -> tuple[int, int, int, int, float, int]:
     coverage = float(scene.get("coverage_percent") or 0)
-    relative_orbit = int(scene.get("relative_orbit") or 0)
-    return coverage, relative_orbit
+    temporal_score = 0
+    if event_key:
+        scene_date = datetime.fromisoformat(scene["acquisition_time"]).date()
+        event_date = datetime.fromisoformat(event_key).date()
+        temporal_score = max(0, 3650 - abs((scene_date - event_date).days))
+    same_polarization = int(not paired_scene or scene.get("polarization") == paired_scene.get("polarization"))
+    same_mode = int(not paired_scene or scene.get("instrument_mode") == paired_scene.get("instrument_mode"))
+    same_pass = int(not paired_scene or scene.get("orbit_pass") == paired_scene.get("orbit_pass"))
+    same_relative_orbit = int(not paired_scene or scene.get("relative_orbit") == paired_scene.get("relative_orbit"))
+    return same_polarization, same_mode, same_pass, same_relative_orbit, coverage, temporal_score
+
+
+def _event_date_key(event_date: Any | None) -> str | None:
+    if not event_date:
+        return None
+    return str(event_date)[:10]
+
+
+def _is_close_to_event(scene: dict[str, Any], event_date: Any) -> bool:
+    event_key = _event_date_key(event_date)
+    if not event_key:
+        return False
+    scene_date = datetime.fromisoformat(scene["acquisition_time"]).date()
+    event = datetime.fromisoformat(event_key).date()
+    return abs((scene_date - event).days) <= 3
