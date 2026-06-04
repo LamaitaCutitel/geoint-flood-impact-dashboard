@@ -1,6 +1,11 @@
 from datetime import date
 
-from src.gee.sentinel1_scene_explorer import scene_recommendation_labels, validate_scene_pair
+from src.gee import sentinel1_scene_explorer
+from src.gee.sentinel1_scene_explorer import (
+    scene_recommendation_labels,
+    search_sentinel1_scenes_result,
+    validate_scene_pair,
+)
 
 
 def _scene(**overrides):
@@ -73,3 +78,74 @@ def test_recommendations_use_event_date():
 
     assert "Recomandat BEFORE" in labels_before
     assert "Recomandat AFTER" in labels_after
+
+
+def test_recommendations_prioritize_closest_valid_scene_to_event_date():
+    scenes = [
+        _scene(ee_id="before_compatible_far", display_id="before_compatible_far", acquisition_time="2024-08-20T16:27:00+00:00"),
+        _scene(
+            ee_id="before_near",
+            display_id="before_near",
+            acquisition_time="2024-09-13T16:27:00+00:00",
+            relative_orbit=81,
+        ),
+        _scene(ee_id="after_near", display_id="after_near", acquisition_time="2024-09-15T16:27:00+00:00"),
+    ]
+
+    labels = scene_recommendation_labels(scenes[1], scenes, None, scenes[2], date(2024, 9, 14))
+
+    assert "Recomandat BEFORE" in labels
+
+
+class _FakeAoi:
+    def area(self, scale):
+        return 1
+
+
+class _FakeCollection:
+    def __init__(self, features=None, exc=None):
+        self.features = features or []
+        self.exc = exc
+
+    def map(self, fn):
+        return self
+
+    def sort(self, field):
+        return self
+
+    def toList(self, limit):
+        return self
+
+    def getInfo(self):
+        if self.exc:
+            raise self.exc
+        return self.features
+
+
+def test_search_sentinel1_scenes_result_distinguishes_zero_results(monkeypatch):
+    monkeypatch.setattr(
+        sentinel1_scene_explorer,
+        "get_sentinel1_collection",
+        lambda *args, **kwargs: _FakeCollection([]),
+    )
+
+    result = search_sentinel1_scenes_result(object(), _FakeAoi(), "2024-09-01", "2024-09-02", "VH", "BOTH")
+
+    assert result["scenes"] == []
+    assert result["errors"] == []
+    assert result["warnings"]
+    assert result["query_parameters"]["polarization"] == "VH"
+
+
+def test_search_sentinel1_scenes_result_classifies_auth_errors(monkeypatch):
+    monkeypatch.setattr(
+        sentinel1_scene_explorer,
+        "get_sentinel1_collection",
+        lambda *args, **kwargs: _FakeCollection(exc=Exception("Please authorize access")),
+    )
+
+    result = search_sentinel1_scenes_result(object(), _FakeAoi(), "2024-09-01", "2024-09-02", "VH", "BOTH")
+
+    assert result["scenes"] == []
+    assert result["errors"][0]["code"] == "gee_auth_missing"
+    assert result["query_duration"] >= 0

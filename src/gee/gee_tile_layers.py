@@ -4,6 +4,8 @@ from typing import Any
 
 import folium
 
+from src.app.layer_styles import vis_params_by_display_name
+
 
 VIS_PARAMS = {
     "Sentinel-1 SAR before": {"min": -25, "max": 0, "palette": ["111827", "e5e7eb"]},
@@ -75,6 +77,7 @@ VIS_PARAMS = {
     "Hillshade": {"min": 0, "max": 255, "palette": ["111827", "f8fafc"]},
     "Slope": {"min": 0, "max": 35, "palette": ["f8fafc", "facc15", "dc2626"]},
 }
+VIS_PARAMS.update(vis_params_by_display_name())
 
 
 def add_ee_tile_layer(

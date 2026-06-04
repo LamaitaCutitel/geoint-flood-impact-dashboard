@@ -26,6 +26,11 @@ METRIC_HELP = {
     "Zona construita intersectata": "Suprafata clasei built intersectata de extinderea preliminara detectata.",
     "Vegetatie intersectata": "Suma claselor de vegetatie intersectate de extinderea preliminara.",
     "Clasa dominanta": "Clasa Dynamic World cu cea mai mare suprafata intersectata.",
+    "Cladiri potential afectate OSM": "Numar estimativ de cladiri OSM in zona de interogare extinsa cu buffer.",
+    "Drumuri intersectate OSM": "Lungime estimativa de drumuri OSM intersectate de zona de interogare.",
+    "Obiective critice OSM": "Numar estimativ de obiective critice OSM in zona de interogare.",
+    "Cai ferate intersectate OSM": "Lungime estimativa de cai ferate OSM intersectate.",
+    "Poduri OSM": "Numar estimativ de elemente OSM marcate ca poduri.",
     "Durata procesarii": "Durata masurata local pentru fluxul declansat de utilizator.",
 }
 
@@ -51,6 +56,11 @@ def render_metric_cards(st, metrics: dict[str, object]) -> None:
         ("Zona construita intersectata", f"{metrics.get('built_up_intersected_km2', 0.0)} km2"),
         ("Vegetatie intersectata", f"{metrics.get('vegetation_intersected_km2', 0.0)} km2"),
         ("Clasa dominanta", metrics.get("dominant_land_cover_class", "n/a")),
+        ("Cladiri potential afectate OSM", metrics.get("osm_buildings_potentially_affected", 0)),
+        ("Drumuri intersectate OSM", f"{metrics.get('osm_roads_intersected_km', 0.0)} km"),
+        ("Obiective critice OSM", metrics.get("osm_critical_assets", 0)),
+        ("Cai ferate intersectate OSM", f"{metrics.get('osm_railways_intersected_km', 0.0)} km"),
+        ("Poduri OSM", metrics.get("osm_bridges", 0)),
         ("Durata procesarii", metrics.get("processing_time", "n/a")),
     ]
     st.subheader("Rezultatele analizei")

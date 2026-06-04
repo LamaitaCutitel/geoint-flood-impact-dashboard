@@ -14,6 +14,8 @@ def _params():
         "event_date": "2024-09-14",
         "polarization": "VH",
         "orbit_pass": "BOTH",
+        "before_sar_method": "Compozit median din scene compatibile",
+        "after_sar_method": "Scena individuala selectata manual",
         "scale": 20,
         "threshold": 1.25,
         "smoothing_radius": 30,
@@ -27,6 +29,11 @@ def _metrics():
         "sar_detected_extent_km2": 18.42,
         "permanent_water_removed_km2": 1.2,
         "dominant_land_cover_class": "crops",
+        "osm_buildings_potentially_affected": 2,
+        "osm_roads_intersected_km": 1.5,
+        "osm_critical_assets": 1,
+        "osm_railways_intersected_km": 0.25,
+        "osm_bridges": 1,
     }
 
 
@@ -34,6 +41,9 @@ def test_build_report_payload_contains_methodological_note():
     payload = build_report_payload(_params(), _metrics(), {"crops": 10.0}, [])
     assert payload["aoi"] == "Galati - September 2024 Floods"
     assert payload["scene_counts"]["before"] == 5
+    assert payload["before_sar_method"] == "Compozit median din scene compatibile"
+    assert payload["after_sar_method"] == "Scena individuala selectata manual"
+    assert payload["osm_operational_impact"]["buildings_potentially_affected"] == 2
     assert "produse GEOINT preliminare" in payload["methodological_note"]
 
 

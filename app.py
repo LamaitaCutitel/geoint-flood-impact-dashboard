@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from config.settings import (
@@ -18,6 +19,7 @@ from src.app.county_boundaries import (
     normalize_county_name,
     selected_county_feature,
 )
+from src.app.ems_validation import geojson_area_km2, validation_metrics
 from src.app.layer_registry import LayerRegistry
 from src.app.layout import configure_page, sidebar_parameters
 from src.app.map_builder import (
@@ -27,8 +29,11 @@ from src.app.map_builder import (
     build_sar_candidate_compare_map,
     build_sar_preview_map,
 )
+from src.app.osm_impact import fetch_osm_operational_impact
 from src.app.progress_logger import ProgressLogger, bootstrap_startup_logger, render_progress
 from src.app.results_panel import render_land_cover, render_metric_cards
+from src.app.layer_styles import layer_style
+from src.app.state import reset_county_dependent_state
 from src.gee.dynamic_world import (
     dynamic_world_change_map,
     dynamic_world_mode,
@@ -43,7 +48,7 @@ from src.gee.dem_layers import build_dem_products
 from src.gee.gee_auth import AUTH_COMMANDS, initialize_earth_engine, local_earthengine_status
 from src.gee.permanent_water import permanent_water_mask
 from src.gee.sar_flood_detection import detect_flood_extent
-from src.gee.sar_preprocessing import build_before_after_composites
+from src.gee.sar_preprocessing import median_composite, minimum_composite, smooth_sar
 from src.gee.gee_tile_layers import ee_tile_url
 from src.gee.sar_water_masks import (
     overlap_percent,
@@ -60,7 +65,7 @@ from src.gee.sentinel1_collection import (
 )
 from src.gee.sentinel1_scene_explorer import (
     scene_recommendation_labels,
-    search_sentinel1_scenes,
+    search_sentinel1_scenes_result,
     selected_scene_image,
     validate_scene_pair,
 )
@@ -383,7 +388,7 @@ def _handle_county_click(st: Any, map_data: dict[str, Any] | None, available_cou
         return
     st.session_state.selected_county = clicked_county
     st.session_state.county_focus_requested = True
-    st.session_state.pop("last_analysis_result", None)
+    reset_county_dependent_state(st.session_state)
     st.rerun()
 
 
@@ -439,7 +444,7 @@ def _search_sar_scenes(st: Any, params: Any, ee: Any) -> None:
     step(10, "Se cauta scene Sentinel-1 in intervalul selectat.")
     aoi = build_aoi_from_geometry(ee, params.county_geometry, params.bbox)
     step(30, "Se extrag metadatele orbitale.")
-    scenes = search_sentinel1_scenes(
+    search_result = search_sentinel1_scenes_result(
         ee,
         aoi,
         params.before_start_date,
@@ -447,19 +452,40 @@ def _search_sar_scenes(st: Any, params: Any, ee: Any) -> None:
         params.polarization,
         params.orbit_pass,
     )
+    for warning in search_result.get("warnings", []):
+        logger.warn(warning)
+        status.warning(warning)
+    for error in search_result.get("errors", []):
+        logger.error(error.get("message", "Eroare Google Earth Engine."))
+        status.error(error.get("message", "Eroare Google Earth Engine."))
+    scenes = search_result.get("scenes", [])
     scenes = _attach_sar_thumbnails(ee, aoi, scenes)
-    step(55, f"Au fost gasite {len(scenes)} scene.")
+    if search_result.get("errors"):
+        step(55, "Cautarea scenelor s-a oprit din cauza unei erori GEE.", "error")
+    elif not scenes:
+        step(55, "Cautarea a reusit, dar nu exista scene pentru parametrii curenti.", "warning")
+    else:
+        step(55, f"Au fost gasite {len(scenes)} scene.")
     step(70, "Se calculeaza acoperirea judetului.")
     st.session_state.sar_scene_results = {
         "county_name": params.county_name,
         "search_key": _sar_search_key(params),
         "scenes": scenes,
+        "warnings": search_result.get("warnings", []),
+        "errors": search_result.get("errors", []),
+        "query_duration": search_result.get("query_duration", 0),
+        "query_parameters": search_result.get("query_parameters", {}),
     }
     st.session_state.sar_timeline_index = 0
     st.session_state.pop("sar_preview", None)
     st.session_state.pop("last_analysis_result", None)
+    if search_result.get("errors"):
+        return
     step(90, "Se genereaza previzualizarile.")
-    step(100, "Exploratorul temporal este pregatit.", "success")
+    if scenes:
+        step(100, "Exploratorul temporal este pregatit.", "success")
+    else:
+        step(100, "Cautarea s-a finalizat fara scene disponibile.", "warning")
 
 
 def _render_temporal_explorer(st: Any, params: Any, gee_available: bool) -> None:
@@ -470,8 +496,18 @@ def _render_temporal_explorer(st: Any, params: Any, gee_available: bool) -> None
         st.info("Apasa `Cauta imagini disponibile` pentru parametrii curenti.")
         _render_selected_pair_card(st, [])
         return
+    for error in results.get("errors", []):
+        st.error(error.get("message", "Eroare Google Earth Engine."))
+        if error.get("details"):
+            with st.expander("Detalii eroare GEE", expanded=False):
+                st.code(error["details"])
+    if results.get("errors"):
+        _render_selected_pair_card(st, [])
+        return
+    for warning in results.get("warnings", []):
+        st.warning(warning)
     if not scenes:
-        st.info("Nu exista scene cautate pentru parametrii curenti.")
+        st.info("Cautarea a reusit, dar nu exista scene Sentinel-1 pentru parametrii curenti.")
         _render_selected_pair_card(st, [])
         return
 
@@ -728,6 +764,16 @@ def _selected_pair_key(st: Any) -> str:
     return f"{before_id}-{after_id}"
 
 
+def _short_window_around_scene(scene: dict[str, Any], days: int = 2) -> tuple[str, str]:
+    acquisition_time = scene.get("acquisition_time")
+    if not acquisition_time:
+        raise RuntimeError("Scena AFTER selectata nu are acquisition_time pentru fereastra scurta.")
+    center = datetime.fromisoformat(str(acquisition_time).replace("Z", "+00:00")).date()
+    start = center - timedelta(days=days)
+    end = center + timedelta(days=days + 1)
+    return start.isoformat(), end.isoformat()
+
+
 def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None, ee: Any) -> None:
     ensure_output_dirs()
     logger = ProgressLogger()
@@ -756,8 +802,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
         if pair_status.get("requires_confirmation") and not st.session_state.get("confirm_relative_orbit_mismatch"):
             raise RuntimeError("Confirma explicit folosirea perechii cu orbita relativa diferita.")
 
-        if params.use_median_composite:
-            ui_log(15, "Se cauta scene Sentinel-1 pentru compozitul median before.")
+        if params.before_sar_method == "Compozit median din scene compatibile":
+            ui_log(15, "Se cauta scene Sentinel-1 pentru metoda BEFORE median.")
             before_collection = get_sentinel1_collection(
                 ee,
                 aoi,
@@ -768,37 +814,47 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             )
             before_count = count_scenes(before_collection)
             s1_before_dates = collection_scene_dates(before_collection)
-            ui_log(28, "Se cauta scene Sentinel-1 pentru compozitul median after.")
+            if before_count == 0:
+                raise RuntimeError("Lipsesc scene Sentinel-1 pentru metoda BEFORE median.")
+            ui_log(42, "Se creeaza compozitul median BEFORE.")
+            before_image = smooth_sar(median_composite(before_collection), ee, params.smoothing_radius).clip(aoi)
+        else:
+            ui_log(15, "Se incarca scena BEFORE selectata.")
+            before_image = selected_scene_image(ee, before_scene, aoi, params.smoothing_radius)
+            before_count = 1
+            s1_before_dates = [before_scene["acquisition_time"]]
+
+        if params.after_sar_method == "Scena individuala selectata manual":
+            ui_log(28, "Se incarca scena AFTER selectata.")
+            after_image = selected_scene_image(ee, after_scene, aoi, params.smoothing_radius)
+            after_count = 1
+            s1_after_dates = [after_scene["acquisition_time"]]
+        else:
+            after_start, after_end = _short_window_around_scene(after_scene, days=2)
+            method_label = (
+                "minimum SAR exploratoriu"
+                if params.after_sar_method == "Minimum SAR / percentila joasa exploratorie"
+                else "compozitul median AFTER pe interval scurt"
+            )
+            ui_log(28, f"Se cauta scene Sentinel-1 pentru {method_label}.")
             after_collection = get_sentinel1_collection(
                 ee,
                 aoi,
-                params.after_start_date,
-                params.after_end_date,
+                after_start,
+                after_end,
                 params.polarization,
                 params.orbit_pass,
             )
             after_count = count_scenes(after_collection)
             s1_after_dates = collection_scene_dates(after_collection)
-            if before_count == 0 or after_count == 0:
-                raise RuntimeError("Lipsesc scene Sentinel-1 pentru compozitul median.")
-            ui_log(42, "Se creeaza compozitul median before.")
-            ui_log(48, "Se creeaza compozitul median after.")
-            before_image, after_image = build_before_after_composites(
-                before_collection,
-                after_collection,
-                ee,
-                params.smoothing_radius,
-                aoi,
-            )
-        else:
-            ui_log(15, "Se incarca scena BEFORE selectata.")
-            before_image = selected_scene_image(ee, before_scene, aoi, params.smoothing_radius)
-            ui_log(28, "Se incarca scena AFTER selectata.")
-            after_image = selected_scene_image(ee, after_scene, aoi, params.smoothing_radius)
-            before_count = 1
-            after_count = 1
-            s1_before_dates = [before_scene["acquisition_time"]]
-            s1_after_dates = [after_scene["acquisition_time"]]
+            if after_count == 0:
+                raise RuntimeError("Lipsesc scene Sentinel-1 pentru metoda AFTER selectata.")
+            ui_log(48, f"Se creeaza {method_label}.")
+            if params.after_sar_method == "Minimum SAR / percentila joasa exploratorie":
+                after_image = smooth_sar(minimum_composite(after_collection), ee, params.smoothing_radius).clip(aoi)
+                logger.warn("Metoda AFTER minimum SAR / percentila joasa este exploratorie si necesita interpretare prudenta.")
+            else:
+                after_image = smooth_sar(median_composite(after_collection), ee, params.smoothing_radius).clip(aoi)
 
         ui_log(52, "Se aplica crop dupa geometria judetului.")
         sar_water_threshold = sar_water_threshold_for_mode(
@@ -868,17 +924,16 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             logger.warn(warning)
 
         ui_log(84, "Se proceseaza Dynamic World.")
+        dw_after_start = str(params.after_start_date)
+        dw_after_end = str(params.after_end_date)
+        dw_after_mode_used = params.dynamic_world_after_mode
+        if params.dynamic_world_after_mode == "Fereastra apropiata de scena SAR AFTER":
+            dw_after_start, dw_after_end = _short_window_around_scene(after_scene, days=2)
         land_cover_before = dynamic_world_mode(
             ee,
             aoi,
             str(params.before_start_date),
             str(params.before_end_date),
-        )
-        land_cover_after = dynamic_world_mode(
-            ee,
-            aoi,
-            str(params.after_start_date),
-            str(params.after_end_date),
         )
         dw_before_collection = (
             ee.ImageCollection(COLLECTIONS.dynamic_world)
@@ -888,10 +943,27 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
         dw_after_collection = (
             ee.ImageCollection(COLLECTIONS.dynamic_world)
             .filterBounds(aoi)
-            .filterDate(str(params.after_start_date), str(params.after_end_date))
+            .filterDate(dw_after_start, dw_after_end)
         )
         dw_before_dates = collection_scene_dates(dw_before_collection)
         dw_after_dates = collection_scene_dates(dw_after_collection)
+        if params.dynamic_world_after_mode == "Fereastra apropiata de scena SAR AFTER" and not dw_after_dates:
+            logger.warn("Nu exista Dynamic World in fereastra apropiata de scena SAR AFTER. Se foloseste intervalul complet AFTER.")
+            dw_after_start = str(params.after_start_date)
+            dw_after_end = str(params.after_end_date)
+            dw_after_mode_used = "Interval complet"
+            dw_after_collection = (
+                ee.ImageCollection(COLLECTIONS.dynamic_world)
+                .filterBounds(aoi)
+                .filterDate(dw_after_start, dw_after_end)
+            )
+            dw_after_dates = collection_scene_dates(dw_after_collection)
+        land_cover_after = dynamic_world_mode(
+            ee,
+            aoi,
+            dw_after_start,
+            dw_after_end,
+        )
         land_cover_changes = dynamic_world_change_map(ee, land_cover_before, land_cover_after, aoi)
         water_change_masks = dynamic_world_water_change_masks(
             land_cover_before,
@@ -921,8 +993,10 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
         )
         land_cover_summary = summarize_land_cover(land_cover_stats)
 
-        ui_log(86, "Se genereaza DEM, hillshade si slope.")
-        dem_products = build_dem_products(ee, aoi)
+        dem_products = None
+        if params.load_optional_layers:
+            ui_log(86, "Se genereaza DEM, hillshade si slope.")
+            dem_products = build_dem_products(ee, aoi)
 
         ui_log(88, "Se aplica crop dupa geometria judetului pentru toate layerele.")
         ui_log(90, "Se genereaza tile layers GEE.")
@@ -966,6 +1040,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "scene_count_after": after_count,
             "sar_before_scene_id": (before_scene or {}).get("display_id"),
             "sar_after_scene_id": (after_scene or {}).get("display_id"),
+            "before_sar_method": params.before_sar_method,
+            "after_sar_method": params.after_sar_method,
             "sar_before_acquisition_time": (before_scene or {}).get("acquisition_time"),
             "sar_after_acquisition_time": (after_scene or {}).get("acquisition_time"),
             "sar_before_relative_orbit": (before_scene or {}).get("relative_orbit"),
@@ -985,6 +1061,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "permanent_water_removed_km2": detection.permanent_water_removed_km2,
             "dynamic_world_new_water_km2": round(dynamic_world_new_water_km2, 4),
             "dynamic_world_water_loss_km2": round(dynamic_world_water_loss_km2, 4),
+            "dynamic_world_after_mode": dw_after_mode_used,
+            "dynamic_world_after_period": f"{dw_after_start} - {dw_after_end}",
             "sar_dynamic_world_new_water_intersection_km2": round(sar_dw_intersection_km2, 4),
             "new_water_only_sar_area_km2": sar_dw_overlap_metrics["new_water_only_sar_area_km2"],
             "new_water_only_dynamic_world_area_km2": sar_dw_overlap_metrics["new_water_only_dynamic_world_area_km2"],
@@ -996,6 +1074,30 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "processing_time": f"{logger.duration_seconds()} s",
             "jrc_water_mode": params.jrc_water_mode,
         }
+        if params.show_osm_impact:
+            ui_log(93, "Se estimeaza expunerea operationala OSM.")
+            try:
+                metrics.update(
+                    fetch_osm_operational_impact(
+                        params.bbox,
+                        buffer_meters=params.osm_buffer_meters,
+                        limit=params.osm_query_limit,
+                    )
+                )
+            except Exception as exc:
+                logger.warn(f"Impactul operational OSM nu a putut fi calculat: {exc}")
+                metrics.update(
+                    {
+                        "osm_buildings_potentially_affected": 0,
+                        "osm_roads_intersected_km": 0.0,
+                        "osm_critical_assets": 0,
+                        "osm_railways_intersected_km": 0.0,
+                        "osm_bridges": 0,
+                        "osm_query_buffer_m": params.osm_buffer_meters,
+                        "osm_query_limit": params.osm_query_limit,
+                        "osm_elements_returned": 0,
+                    }
+                )
 
         ui_log(94, "Se calculeaza statisticile.")
         ui_log(97, "Se genereaza raportul.")
@@ -1053,14 +1155,18 @@ def _layer_images(
     layer_images: dict[str, dict[str, Any]] = {}
     def add(layer_id: str, display_name: str, category: str, layer_type: str, image: Any, shown: bool = False) -> None:
         if image is not None:
+            style = layer_style(layer_id)
+            metadata = layer_metadata.get(layer_id) or {}
+            if style.get("description") and not metadata.get("details"):
+                metadata = {**metadata, "details": style["description"]}
             layer_images[layer_id] = {
-                "display_name": display_name,
-                "category": category,
+                "display_name": style.get("display_name", display_name),
+                "category": style.get("category", category),
                 "layer_type": layer_type,
                 "image": image,
                 "shown": shown,
                 "comparable": True,
-                "metadata": layer_metadata.get(layer_id),
+                "metadata": metadata,
             }
 
     if params.show_sar_before:
@@ -1071,8 +1177,9 @@ def _layer_images(
         add("sar_water_before", "SAR water BEFORE", "Apa observata prin SAR", "before", sar_water_masks.get("sar_water_before"))
         add("sar_water_after", "SAR water AFTER", "Apa observata prin SAR", "after", sar_water_masks.get("sar_water_after"))
         add("sar_new_water", "SAR new water", "Apa observata prin SAR", "result", sar_water_masks.get("sar_new_water"), True)
-        add("sar_persistent_water", "SAR persistent water", "Apa observata prin SAR", "result", sar_water_masks.get("sar_persistent_water"))
-        add("sar_water_loss", "SAR water loss", "Apa observata prin SAR", "delta", sar_water_masks.get("sar_water_loss"))
+        if params.load_optional_layers:
+            add("sar_persistent_water", "SAR persistent water", "Apa observata prin SAR", "result", sar_water_masks.get("sar_persistent_water"))
+            add("sar_water_loss", "SAR water loss", "Apa observata prin SAR", "delta", sar_water_masks.get("sar_water_loss"))
     if params.show_sar_change:
         add("sar_difference", "SAR difference", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_difference"))
         add("sar_ratio", "SAR ratio", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_ratio"))
@@ -1083,18 +1190,21 @@ def _layer_images(
     if params.show_land_cover:
         add("dynamic_world_before", "Dynamic World before", "Land cover", "before", land_cover_before)
         add("dynamic_world_after", "Dynamic World after", "Land cover", "after", land_cover_after)
-        add("land_cover_changes", "Land cover changes", "Land cover", "delta", land_cover_changes)
         add("dynamic_world_new_water", "Dynamic World - apa noua", "Cresterea apei - Dynamic World", "result", water_change_masks.get("dynamic_world_new_water"), True)
-        add("dynamic_world_water_loss", "Dynamic World - pierdere apa", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_water_loss"))
-        add("dynamic_world_other_change", "Dynamic World - alte diferente", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_other_change"))
+        if params.load_optional_layers:
+            add("land_cover_changes", "Land cover changes", "Land cover", "delta", land_cover_changes)
+            add("dynamic_world_water_loss", "Dynamic World - pierdere apa", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_water_loss"))
+            add("dynamic_world_other_change", "Dynamic World - alte diferente", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_other_change"))
         if params.show_sar_dynamic_world_correlation:
             add("sar_dynamic_world_new_water_overlap", "SAR x Dynamic World new water overlap", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("sar_dynamic_world_new_water_overlap"), True)
-            add("new_water_only_sar", "New water only SAR", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_sar"))
-            add("new_water_only_dynamic_world", "New water only Dynamic World", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_dynamic_world"))
-        add("intersected_land_cover", "land cover", "Land cover", "result", land_cover_after.updateMask(detection.flood_mask))
-    if s2_products.rgb_before is not None:
+            if params.load_optional_layers:
+                add("new_water_only_sar", "New water only SAR", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_sar"))
+                add("new_water_only_dynamic_world", "New water only Dynamic World", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_dynamic_world"))
+        if params.load_optional_layers:
+            add("intersected_land_cover", "land cover", "Land cover", "result", land_cover_after.updateMask(detection.flood_mask))
+    if params.load_optional_layers and s2_products.rgb_before is not None:
         add("rgb_before", "RGB before", "Sentinel-2 optic", "before", s2_products.rgb_before)
-    if s2_products.rgb_after is not None:
+    if params.load_optional_layers and s2_products.rgb_after is not None:
         add("rgb_after", "RGB after", "Sentinel-2 optic", "after", s2_products.rgb_after)
     index_names = {
         "ndwi_before": ("NDWI before", "before"),
@@ -1110,11 +1220,13 @@ def _layer_images(
         "ndmi_after": ("NDMI after", "after"),
         "delta_ndmi": ("Delta NDMI", "delta"),
     }
-    for key, (display, layer_type) in index_names.items():
-        add(key, display, "Sentinel-2 optic", layer_type, s2_products.indices.get(key))
-    add("dem", "DEM", "Date auxiliare", "static", dem_products.dem)
-    add("hillshade", "Hillshade", "Date auxiliare", "static", dem_products.hillshade)
-    add("slope", "Slope", "Date auxiliare", "static", dem_products.slope)
+    if params.load_optional_layers:
+        for key, (display, layer_type) in index_names.items():
+            add(key, display, "Sentinel-2 optic", layer_type, s2_products.indices.get(key))
+    if params.load_optional_layers and dem_products is not None:
+        add("dem", "DEM", "Date auxiliare", "static", dem_products.dem)
+        add("hillshade", "Hillshade", "Date auxiliare", "static", dem_products.hillshade)
+        add("slope", "Slope", "Date auxiliare", "static", dem_products.slope)
     return layer_images
 
 
@@ -1204,7 +1316,7 @@ def _render_secondary_analysis_result(st: Any, result: dict[str, Any]) -> None:
         with tabs[2]:
             render_land_cover(st, result["land_cover_stats"])
         with tabs[3]:
-            st.info("Placeholder pentru comparatie EMS. Validarea externa ramane un task urmator.")
+            _render_ems_validation(st, result)
         with tabs[4]:
             logger = result.get("logger")
             if logger:
@@ -1231,6 +1343,46 @@ def _render_secondary_analysis_result(st: Any, result: dict[str, Any]) -> None:
                 file_name="flood_impact_report.json",
                 mime="application/json",
             )
+
+
+def _render_ems_validation(st: Any, result: dict[str, Any]) -> None:
+    st.caption("EMS este tratat ca produs operational de referinta, nu ca adevar absolut.")
+    upload = st.file_uploader(
+        "Incarca produs Copernicus EMS",
+        type=["geojson", "json", "gpkg", "zip"],
+        help="GeoJSON este calculat local. GPKG si Shapefile ZIP necesita suport geospatial suplimentar.",
+    )
+    if upload is None:
+        st.info("Incarca un GeoJSON EMS pentru calcularea ariei produsului de referinta.")
+        return
+    suffix = upload.name.lower().rsplit(".", 1)[-1]
+    if suffix not in {"geojson", "json"}:
+        st.warning("Format acceptat pentru upload, dar calculul local este disponibil acum doar pentru GeoJSON.")
+        return
+    try:
+        ems_area = geojson_area_km2(upload.getvalue())
+    except Exception as exc:
+        st.error("Produsul EMS nu a putut fi citit ca GeoJSON valid.")
+        st.code(str(exc))
+        return
+    sar_area = float(result["metrics"].get("sar_detected_extent_km2", 0.0) or 0.0)
+    st.warning(
+        "Intersectia spatiala SAR-EMS necesita o geometrie vectoriala SAR. In acest ecran, "
+        "seteaza manual aria de intersectie daca ai calculat-o extern."
+    )
+    intersection = st.number_input(
+        "Arie intersectie SAR x EMS km2",
+        min_value=0.0,
+        max_value=float(max(sar_area, ems_area)),
+        value=0.0,
+        step=0.1,
+    )
+    metrics = validation_metrics(sar_area, ems_area, intersection)
+    st.dataframe(
+        [{"indicator": key, "valoare": value} for key, value in metrics.items()],
+        hide_index=True,
+        use_container_width=True,
+    )
 
 
 def _render_friendly_error(

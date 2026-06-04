@@ -79,6 +79,9 @@ class DynamicCompareControl(MacroElement):
             swap.innerText = 'Schimba layerele';
             var stop = L.DomUtil.create('button', '', container);
             stop.innerText = 'Iesi din comparatie';
+            var message = L.DomUtil.create('div', '', container);
+            message.style.marginTop = '6px';
+            message.style.color = '#475569';
 
             function clearCompare() {
               if (compareControl) {
@@ -91,11 +94,13 @@ class DynamicCompareControl(MacroElement):
 
             function startCompare() {
               clearCompare();
+              message.innerText = '';
               var leftItem = layers[parseInt(left.value)];
               var rightItem = layers[parseInt(right.value)];
               if (!leftItem || !rightItem) { return; }
               leftLayer = makeLayer(leftItem).addTo(map);
               rightLayer = makeLayer(rightItem).addTo(map);
+              var attempts = 0;
               var waitForPlugin = function() {
                 if (window.L.control.sideBySide) {
                   compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(map);
@@ -104,9 +109,15 @@ class DynamicCompareControl(MacroElement):
                     if (range) {
                       range.style.zIndex = 1000;
                       range.style.pointerEvents = 'auto';
+                      message.innerText = 'Comparator activ.';
+                    } else {
+                      message.innerText = 'Comparator pornit, dar separatorul nu este vizibil.';
                     }
                   }, 50);
+                } else if (attempts > 30) {
+                  message.innerText = 'Pluginul Leaflet side-by-side nu s-a incarcat. Layerele au fost adaugate fara separator.';
                 } else {
+                  attempts += 1;
                   setTimeout(waitForPlugin, 150);
                 }
               };
@@ -163,9 +174,9 @@ class DynamicCompareControl(MacroElement):
 
 def _sar_first(layers: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
     by_id = {layer["id"]: layer for layer in layers}
-    before = by_id.get("sar_before")
-    after = by_id.get("sar_after")
+    before = by_id.get("sar_water_before") or by_id.get("sar_before")
+    after = by_id.get("sar_water_after") or by_id.get("sar_after")
     if not before or not after:
         return layers
-    rest = [layer for layer in layers if layer["id"] not in {"sar_before", "sar_after"}]
+    rest = [layer for layer in layers if layer["id"] not in {before["id"], after["id"]}]
     return [before, after, *rest]

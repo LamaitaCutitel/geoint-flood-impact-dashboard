@@ -7,6 +7,10 @@ def median_composite(collection: Any) -> Any:
     return collection.median()
 
 
+def minimum_composite(collection: Any) -> Any:
+    return collection.min()
+
+
 def smooth_sar(image: Any, ee: Any, radius_meters: int) -> Any:
     if radius_meters <= 0:
         return image

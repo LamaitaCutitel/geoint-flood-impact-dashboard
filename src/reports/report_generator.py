@@ -34,6 +34,13 @@ def build_report_payload(
         "event_date": str(analysis_parameters.get("event_date")),
         "polarization": analysis_parameters.get("polarization"),
         "orbit_pass": analysis_parameters.get("orbit_pass"),
+        "before_sar_method": analysis_parameters.get("before_sar_method"),
+        "after_sar_method": analysis_parameters.get("after_sar_method"),
+        "dynamic_world_after_mode": metrics.get(
+            "dynamic_world_after_mode", analysis_parameters.get("dynamic_world_after_mode")
+        ),
+        "dynamic_world_after_period": metrics.get("dynamic_world_after_period"),
+        "load_optional_layers": analysis_parameters.get("load_optional_layers"),
         "scale": analysis_parameters.get("scale"),
         "sar_change_threshold": analysis_parameters.get("threshold"),
         "sar_water_mode": analysis_parameters.get("sar_water_mode"),
@@ -59,6 +66,16 @@ def build_report_payload(
         "new_water_only_dynamic_world_km2": metrics.get(
             "new_water_only_dynamic_world_area_km2", 0.0
         ),
+        "osm_operational_impact": {
+            "buildings_potentially_affected": metrics.get("osm_buildings_potentially_affected", 0),
+            "roads_intersected_km": metrics.get("osm_roads_intersected_km", 0.0),
+            "critical_assets": metrics.get("osm_critical_assets", 0),
+            "railways_intersected_km": metrics.get("osm_railways_intersected_km", 0.0),
+            "bridges": metrics.get("osm_bridges", 0),
+            "query_buffer_m": metrics.get("osm_query_buffer_m"),
+            "query_limit": metrics.get("osm_query_limit"),
+            "elements_returned": metrics.get("osm_elements_returned", 0),
+        },
         "permanent_water_removed_km2": metrics.get("permanent_water_removed_km2", 0.0),
         "land_cover_statistics_km2": land_cover_statistics,
         "available_layers": (layer_registry or {}).get("available", []),

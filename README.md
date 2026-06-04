@@ -36,6 +36,8 @@ analize rapide.
 - O singura harta interactiva folosita pentru selectia judetului, explorarea temporala SAR si rezultatele finale.
 - Explorator temporal Sentinel-1 SAR pentru cautarea scenelor disponibile fara rularea analizei finale.
 - Selectie manuala a perechii SAR BEFORE/AFTER, cu validare de compatibilitate.
+- Resetarea automata a rezultatelor vechi cand se schimba judetul, perioadele,
+  polarizarea sau orbit pass.
 - Comparatie vizuala a candidatilor BEFORE/AFTER inainte de analiza finala, fara flood detection.
 - Harta initiala a Romaniei disponibila imediat, chiar fara Google Earth Engine.
 - Dropdown pentru selectarea judetului, implicit `Galati`.
@@ -45,9 +47,13 @@ analize rapide.
 - AOI-ul analizei foloseste geometria reala a judetului, iar bounding box-ul este folosit doar pentru zoom.
 - Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag SAR change,
   prag separat pentru detectia SAR water si pixeli conectati.
-- Analiza finala foloseste implicit scenele individuale selectate manual; compozitul median ramane optiune avansata dezactivata implicit.
+- Analiza finala foloseste strategia SAR hibrida recomandata: BEFORE ca
+  compozit median din scene compatibile si AFTER ca scena individuala selectata
+  manual. AFTER poate fi testat si ca median scurt sau minimum SAR exploratoriu.
 - Sentinel-2 RGB si indici NDWI, MNDWI, NDVI, NDMI pentru before/after si diferente.
 - Dynamic World before/after, diferente observate intre compozitele analizate si terenuri intersectate.
+- Dynamic World AFTER poate folosi implicit fereastra apropiata de scena SAR
+  AFTER, cu fallback la intervalul complet.
 - SAR water BEFORE/AFTER, SAR new water, apa persistenta SAR si pierdere de apa SAR.
 - Dynamic World apa noua, pierdere apa si suprapunere cu SAR new water.
 - Layere de corelare: SAR x Dynamic World new water overlap, New water only SAR
@@ -55,6 +61,12 @@ analize rapide.
 - Masca JRC configurabila: Conservator, Echilibrat sau Extins.
 - DEM SRTM, hillshade si slope ca layere auxiliare.
 - Profile de analiza: Rapid preview, Standard, Detailed export.
+- Lazy loading pentru layere suplimentare: SAR difference/ratio, SAR persistent/loss,
+  alte diferente Dynamic World, Sentinel-2, indici si DEM.
+- Impact operational OSM optional prin Overpass API: cladiri potential afectate,
+  drumuri intersectate, obiective critice, cai ferate si poduri.
+- Validare Copernicus EMS prin upload GeoJSON, cu metrici IoU/precision/recall/F1
+  atunci cand aria de intersectie SAR x EMS este disponibila.
 - Layer registry central pentru LayerControl, raport si comparatii.
 - Slider vertical before/after SAR water pornit automat dupa analiza finala, plus control in harta `Compara doua layere` pentru perechi alternative fara rerulare GEE.
 - Legenda in harta pentru limite administrative, layere incarcate si perioadele before/after folosite la preluarea datelor.
@@ -117,6 +129,10 @@ judetului selectat:
 - Dynamic World before/after si diferente observate intre compozitele analizate.
 - Dynamic World new water si suprapuneri cu SAR new water.
 - Apa permanenta JRC, DEM, hillshade si slope.
+
+Implicit sunt generate layerele esentiale pentru interpretare rapida. Toggle-ul
+`Incarca layere suplimentare` adauga layerele mai grele fara sa schimbe regulile
+analizei principale.
 
 Layerele pot fi activate/dezactivate din LayerControl. Bara verticala before/after
 SAR water este adaugata automat cand cele doua layere SAR water BEFORE/AFTER sunt disponibile.

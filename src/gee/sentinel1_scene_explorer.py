@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from src.gee.sentinel1_collection import get_sentinel1_collection
@@ -35,6 +36,34 @@ def search_sentinel1_scenes(
     orbit_pass: str,
     limit: int = 60,
 ) -> list[dict[str, Any]]:
+    return search_sentinel1_scenes_result(
+        ee,
+        aoi,
+        start_date,
+        end_date,
+        polarization,
+        orbit_pass,
+        limit,
+    )["scenes"]
+
+
+def search_sentinel1_scenes_result(
+    ee: Any,
+    aoi: Any,
+    start_date: Any,
+    end_date: Any,
+    polarization: str,
+    orbit_pass: str,
+    limit: int = 60,
+) -> dict[str, Any]:
+    started_at = perf_counter()
+    query_parameters = {
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "polarization": polarization,
+        "orbit_pass": orbit_pass,
+        "limit": limit,
+    }
     collection = get_sentinel1_collection(ee, aoi, start_date, end_date, polarization, orbit_pass)
     aoi_area = aoi.area(1)
 
@@ -45,15 +74,28 @@ def search_sentinel1_scenes(
 
     try:
         features = collection.map(annotate).sort("system:time_start").toList(limit).getInfo()
-    except Exception:
-        return []
+    except Exception as exc:
+        return {
+            "scenes": [],
+            "warnings": [],
+            "errors": [_classify_gee_error(exc)],
+            "query_duration": round(perf_counter() - started_at, 3),
+            "query_parameters": query_parameters,
+        }
 
     scenes: list[dict[str, Any]] = []
     for feature in features:
         scene = _scene_from_feature(feature, polarization)
         if scene:
             scenes.append(scene.as_dict())
-    return scenes
+    warnings = [] if scenes else ["Nu au fost gasite scene Sentinel-1 pentru intervalul si AOI-ul selectat."]
+    return {
+        "scenes": scenes,
+        "warnings": warnings,
+        "errors": [],
+        "query_duration": round(perf_counter() - started_at, 3),
+        "query_parameters": query_parameters,
+    }
 
 
 def selected_scene_image(ee: Any, scene: dict[str, Any], aoi: Any, smoothing_radius: int = 0) -> Any:
@@ -221,7 +263,31 @@ def _recommendation_score(
     same_mode = int(not paired_scene or scene.get("instrument_mode") == paired_scene.get("instrument_mode"))
     same_pass = int(not paired_scene or scene.get("orbit_pass") == paired_scene.get("orbit_pass"))
     same_relative_orbit = int(not paired_scene or scene.get("relative_orbit") == paired_scene.get("relative_orbit"))
-    return same_polarization, same_mode, same_pass, same_relative_orbit, coverage, temporal_score
+    return temporal_score, same_polarization, same_mode, same_pass, same_relative_orbit, coverage
+
+
+def _classify_gee_error(exc: Exception) -> dict[str, str]:
+    message = str(exc)
+    normalized = message.lower()
+    if "authenticate" in normalized or "authorize" in normalized or "credentials" in normalized:
+        code = "gee_auth_missing"
+        user_message = "Autentificarea Google Earth Engine lipseste sau a expirat."
+    elif "timed out" in normalized or "timeout" in normalized or "deadline" in normalized:
+        code = "gee_timeout"
+        user_message = "Interogarea Google Earth Engine a depasit timpul disponibil."
+    elif "geometry" in normalized or "aoi" in normalized or "bounds" in normalized:
+        code = "gee_invalid_aoi"
+        user_message = "AOI-ul trimis catre Google Earth Engine nu este valid."
+    elif "invalid" in normalized or "bad request" in normalized:
+        code = "gee_invalid_query"
+        user_message = "Interogarea Google Earth Engine nu este valida."
+    elif "connection" in normalized or "network" in normalized or "temporary failure" in normalized:
+        code = "gee_connection"
+        user_message = "Conexiunea catre Google Earth Engine nu este disponibila."
+    else:
+        code = "gee_unknown"
+        user_message = "Google Earth Engine a returnat o eroare tehnica."
+    return {"code": code, "message": user_message, "details": message}
 
 
 def _event_date_key(event_date: Any | None) -> str | None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from config.settings import GALATI_PRESET, PROFILE_SCALES
-from src.app.state import AnalysisParameters
+from src.app.state import AnalysisParameters, county_dependent_parameter_key, reset_county_dependent_state
 from src.gee.sar_water_masks import sar_water_threshold_for_mode
 
 
@@ -85,7 +85,7 @@ def sidebar_parameters(
             previous_county = st.session_state.get("selected_county")
             if previous_county and previous_county != county_name:
                 st.session_state.county_focus_requested = True
-                st.session_state.pop("last_analysis_result", None)
+                reset_county_dependent_state(st.session_state)
             st.session_state.selected_county = county_name
             st.selectbox(
                 "Preset eveniment",
@@ -207,25 +207,63 @@ def sidebar_parameters(
                     value=PROFILE_SCALES[scale_key],
                     help="Rezolutia de calcul trimisa catre Google Earth Engine.",
                 )
-                use_median = st.checkbox(
-                    "Foloseste compozit median in locul scenelor individuale",
-                    value=False,
+                before_sar_method = st.selectbox(
+                    "Metoda BEFORE",
+                    ["Compozit median din scene compatibile", "Scena individuala"],
                     help=(
-                        "Optiune avansata. Cand este dezactivata, analiza finala foloseste scena "
-                        "BEFORE si scena AFTER selectate manual in exploratorul temporal."
+                        "Default recomandat: compozit median din scene compatibile pentru o "
+                        "linie de baza mai stabila inainte de eveniment."
+                    ),
+                )
+                after_sar_method = st.selectbox(
+                    "Metoda AFTER",
+                    [
+                        "Scena individuala selectata manual",
+                        "Compozit median pe interval scurt",
+                        "Minimum SAR / percentila joasa exploratorie",
+                    ],
+                    help=(
+                        "Default recomandat: scena individuala selectata manual. Produsul minimum "
+                        "SAR / percentila joasa este exploratoriu si poate include zgomot radar."
+                    ),
+                )
+                dynamic_world_after_mode = st.selectbox(
+                    "Dynamic World AFTER",
+                    ["Fereastra apropiata de scena SAR AFTER", "Interval complet"],
+                    help=(
+                        "Default: foloseste o fereastra scurta in jurul scenei SAR AFTER. "
+                        "Daca nu exista imagini Dynamic World in fereastra, analiza revine la intervalul complet."
                     ),
                 )
 
             with st.expander("Layere optionale", expanded=False):
                 show_before = st.checkbox("SAR before", True)
                 show_after = st.checkbox("SAR after", True)
-                show_change = st.checkbox("SAR change", True)
+                load_optional_layers = st.checkbox(
+                    "Incarca layere suplimentare",
+                    False,
+                    help=(
+                        "Adauga SAR difference/ratio, SAR persistent/loss, alte diferente Dynamic World, "
+                        "Sentinel-2, indici si DEM. Poate creste timpul de incarcare a hartii."
+                    ),
+                )
+                show_change = load_optional_layers
                 show_flood = st.checkbox("Extindere detectata", True)
                 show_sar_water = st.checkbox("Afiseaza layere apa SAR", True)
                 show_sar_dw = st.checkbox("Afiseaza corelare SAR x Dynamic World", True)
                 show_permanent = st.checkbox("Apa permanenta", True)
                 show_land = st.checkbox("Dynamic World", True)
-                show_s2 = st.checkbox("Sentinel-2 RGB auxiliar", False)
+                show_s2 = load_optional_layers
+                show_osm_impact = st.checkbox(
+                    "Calculeaza impact operational OSM",
+                    False,
+                    help=(
+                        "Interogheaza Overpass API la cerere pentru cladiri, drumuri, obiective "
+                        "critice, cai ferate si poduri in bbox-ul AOI extins cu buffer."
+                    ),
+                )
+                osm_buffer = st.slider("Buffer OSM metri", 0, 2000, 500, 100)
+                osm_limit = st.selectbox("Limita elemente OSM", [1000, 2500, 5000, 10000], index=2)
 
             pair_status = st.session_state.get("sar_pair_status") or {}
             final_disabled = (
@@ -283,11 +321,24 @@ def sidebar_parameters(
         show_detected_flood_extent=show_flood,
         show_sar_water_layers=show_sar_water,
         show_sar_dynamic_world_correlation=show_sar_dw,
-        use_median_composite=use_median,
+        before_sar_method=before_sar_method,
+        after_sar_method=after_sar_method,
+        dynamic_world_after_mode=dynamic_world_after_mode,
+        load_optional_layers=load_optional_layers,
+        show_osm_impact=show_osm_impact,
+        osm_buffer_meters=osm_buffer,
+        osm_query_limit=osm_limit,
+        use_median_composite=before_sar_method == "Compozit median din scene compatibile"
+        and after_sar_method != "Scena individuala selectata manual",
         comparison_preset="Compara doua layere in harta",
         left_layer="Sentinel-1 SAR before",
         right_layer="Sentinel-1 SAR after",
     )
+    current_dependent_key = county_dependent_parameter_key(params)
+    previous_dependent_key = st.session_state.get("county_dependent_parameter_key")
+    if previous_dependent_key and previous_dependent_key != current_dependent_key:
+        reset_county_dependent_state(st.session_state)
+    st.session_state.county_dependent_parameter_key = current_dependent_key
     if run_analysis:
         st.session_state.last_analysis_params = params.as_dict()
     return params, search_images, run_analysis

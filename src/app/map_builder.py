@@ -10,6 +10,7 @@ from jinja2 import Template
 
 from src.app.county_boundaries import bbox_center, county_display_name, zoom_for_bbox
 from src.app.layer_registry import LayerEntry, LayerRegistry
+from src.app.layer_styles import layer_style
 from src.app.leaflet_compare_control import DynamicCompareControl
 from src.gee.gee_tile_layers import ee_tile_url
 
@@ -490,7 +491,9 @@ def _legend_date_text(params: Any | None, has_analysis_layers: bool) -> str:
         return "Limite administrative: Eurostat GISCO NUTS 2024."
     return (
         "Deschide fiecare categorie pentru zilele scenelor folosite.\n"
-        "Daca apar mai multe zile, layerul este compozit median din acele scene."
+        "Daca apar mai multe zile, layerul este compozit median din acele scene.\n"
+        f"Metoda BEFORE SAR: {getattr(params, 'before_sar_method', 'nespecificata')}.\n"
+        f"Metoda AFTER SAR: {getattr(params, 'after_sar_method', 'nespecificata')}."
     )
 
 
@@ -514,7 +517,8 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
             else:
                 dates_text = str(dates)
             source = metadata.get("source") or "sursa nespecificata"
-            details = metadata.get("details") or layer.get("warning") or ""
+            style = layer_style(layer.get("id") or "")
+            details = metadata.get("details") or style.get("description") or layer.get("warning") or ""
             status = "disponibil" if layer.get("available", True) else "indisponibil"
             color = _legend_color(layer.get("id") or "")
             rows.append(
@@ -536,6 +540,9 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
 
 
 def _legend_color(layer_id: str) -> str:
+    style = layer_style(layer_id)
+    if style.get("legend_color"):
+        return str(style["legend_color"])
     colors = {
         "sar_water_before": "#7dd3fc",
         "sar_water_after": "#2563eb",
