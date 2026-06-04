@@ -43,16 +43,20 @@ analize rapide.
 - Evidentierea judetului selectat prin contur, fara umplere colorata, tooltip si popup.
 - Status servicii si jurnal live de initializare vizibile la pornire.
 - AOI-ul analizei foloseste geometria reala a judetului, iar bounding box-ul este folosit doar pentru zoom.
-- Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag, pixeli conectati.
+- Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag SAR change,
+  prag separat pentru detectia SAR water si pixeli conectati.
 - Analiza finala foloseste implicit scenele individuale selectate manual; compozitul median ramane optiune avansata dezactivata implicit.
 - Sentinel-2 RGB si indici NDWI, MNDWI, NDVI, NDMI pentru before/after si diferente.
 - Dynamic World before/after, diferente observate intre compozitele analizate si terenuri intersectate.
-- Dynamic World apa noua, pierdere apa si intersectie cu extinderea preliminara SAR.
+- SAR water BEFORE/AFTER, SAR new water, apa persistenta SAR si pierdere de apa SAR.
+- Dynamic World apa noua, pierdere apa si suprapunere cu SAR new water.
+- Layere de corelare: SAR x Dynamic World new water overlap, New water only SAR
+  si New water only Dynamic World.
 - Masca JRC configurabila: Conservator, Echilibrat sau Extins.
 - DEM SRTM, hillshade si slope ca layere auxiliare.
 - Profile de analiza: Rapid preview, Standard, Detailed export.
 - Layer registry central pentru LayerControl, raport si comparatii.
-- Slider vertical before/after SAR pornit automat dupa analiza finala, plus control in harta `Compara doua layere` pentru perechi alternative fara rerulare GEE.
+- Slider vertical before/after SAR water pornit automat dupa analiza finala, plus control in harta `Compara doua layere` pentru perechi alternative fara rerulare GEE.
 - Legenda in harta pentru limite administrative, layere incarcate si perioadele before/after folosite la preluarea datelor.
 - Fallback documentat cand layer-ele GEE nu sunt disponibile.
 - Tabel si bar chart pentru terenuri intersectate de extinderea preliminara detectata.
@@ -107,12 +111,15 @@ Dupa analiza finala, aceeasi harta primeste layere GEE decupate dupa geometria
 judetului selectat:
 
 - Sentinel-1 SAR before, after, diferenta, raport si extindere preliminara detectata.
+- SAR water BEFORE/AFTER, SAR new water, apa persistenta SAR, pierdere de apa SAR
+  si SAR flood extent filtrat.
 - Sentinel-2 RGB before/after si indici NDWI, MNDWI, NDVI, NDMI.
 - Dynamic World before/after si diferente observate intre compozitele analizate.
+- Dynamic World new water si suprapuneri cu SAR new water.
 - Apa permanenta JRC, DEM, hillshade si slope.
 
 Layerele pot fi activate/dezactivate din LayerControl. Bara verticala before/after
-SAR este adaugata automat cand cele doua layere Sentinel-1 sunt disponibile.
+SAR water este adaugata automat cand cele doua layere SAR water BEFORE/AFTER sunt disponibile.
 Controlul `Compara doua layere` din harta permite alegerea altor doua layere
 comparabile pentru bara verticala glisanta, fara procesare GEE noua. Legenda din
 harta afiseaza sursele si perioadele before/after folosite pentru datele incarcate.

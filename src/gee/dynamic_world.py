@@ -37,9 +37,11 @@ def dynamic_world_change_map(ee: Any, before: Any, after: Any, aoi: Any) -> Any:
 
 def dynamic_world_water_change_masks(before: Any, after: Any, flood_mask: Any, aoi: Any) -> dict[str, Any]:
     water_class = 0
-    new_water = after.eq(water_class).And(before.neq(water_class)).selfMask().clip(aoi)
-    water_loss = before.eq(water_class).And(after.neq(water_class)).selfMask().clip(aoi)
-    other_change = before.neq(after).And(new_water.Not()).And(water_loss.Not()).selfMask().clip(aoi)
+    new_water_raw = after.eq(water_class).And(before.neq(water_class))
+    water_loss_raw = before.eq(water_class).And(after.neq(water_class))
+    other_change = before.neq(after).And(new_water_raw.Not()).And(water_loss_raw.Not()).selfMask().clip(aoi)
+    new_water = new_water_raw.selfMask().clip(aoi)
+    water_loss = water_loss_raw.selfMask().clip(aoi)
     sar_new_water_intersection = flood_mask.updateMask(new_water).selfMask().clip(aoi)
     return {
         "dynamic_world_new_water": new_water,

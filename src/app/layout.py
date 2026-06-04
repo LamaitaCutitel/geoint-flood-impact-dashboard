@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from config.settings import GALATI_PRESET, PROFILE_SCALES
 from src.app.state import AnalysisParameters
+from src.gee.sar_water_masks import sar_water_threshold_for_mode
 
 
 LAYER_OPTIONS = [
@@ -134,12 +135,33 @@ def sidebar_parameters(
                     help="Selecteaza directia orbitei Sentinel-1. Pentru comparatii robuste, imaginile before si after trebuie sa fie compatibile. Foloseste BOTH doar pentru explorare.",
                 )
                 threshold = st.slider(
-                    "Prag SAR",
+                    "SAR change threshold",
                     0.5,
                     3.0,
                     1.25,
                     0.05,
                     help="Controleaza sensibilitatea detectiei. Un prag mai permisiv poate detecta mai multe zone, dar poate creste numarul de rezultate false pozitive.",
+                )
+                sar_water_mode = st.selectbox(
+                    "Mod detectie apa SAR",
+                    ["Echilibrat", "Conservator", "Sensibil", "Manual"],
+                    help=(
+                        "Conservator detecteaza mai putini pixeli si reduce fals pozitivele. "
+                        "Echilibrat este recomandat implicit. Sensibil detecteaza mai multe zone, "
+                        "dar poate include suprafete netede, sol umed sau umbre radar."
+                    ),
+                )
+                default_water_threshold = sar_water_threshold_for_mode(polarization, sar_water_mode, -18.0)
+                sar_water_threshold = st.number_input(
+                    "SAR water threshold",
+                    value=float(default_water_threshold),
+                    step=0.5,
+                    disabled=sar_water_mode != "Manual",
+                    help=(
+                        "Pragul SAR water threshold este utilizat pentru identificarea pixelilor radar cu "
+                        "comportament compatibil cu apa. Este diferit de pragul change detection, care "
+                        "masoara schimbarea dintre imaginile BEFORE si AFTER."
+                    ),
                 )
                 smoothing_radius = st.slider(
                     "Smoothing radius",
@@ -199,6 +221,8 @@ def sidebar_parameters(
                 show_after = st.checkbox("SAR after", True)
                 show_change = st.checkbox("SAR change", True)
                 show_flood = st.checkbox("Extindere detectata", True)
+                show_sar_water = st.checkbox("Afiseaza layere apa SAR", True)
+                show_sar_dw = st.checkbox("Afiseaza corelare SAR x Dynamic World", True)
                 show_permanent = st.checkbox("Apa permanenta", True)
                 show_land = st.checkbox("Dynamic World", True)
                 show_s2 = st.checkbox("Sentinel-2 RGB auxiliar", False)
@@ -243,6 +267,8 @@ def sidebar_parameters(
         orbit_pass=orbit_pass,
         smoothing_radius=smoothing_radius,
         threshold=threshold,
+        sar_water_mode=sar_water_mode,
+        sar_water_threshold=sar_water_threshold,
         minimum_connected_pixels=minimum_connected,
         mask_permanent_water=mask_permanent,
         jrc_water_mode=jrc_mode,
@@ -255,6 +281,8 @@ def sidebar_parameters(
         show_sar_after=show_after,
         show_sar_change=show_change,
         show_detected_flood_extent=show_flood,
+        show_sar_water_layers=show_sar_water,
+        show_sar_dynamic_world_correlation=show_sar_dw,
         use_median_composite=use_median,
         comparison_preset="Compara doua layere in harta",
         left_layer="Sentinel-1 SAR before",

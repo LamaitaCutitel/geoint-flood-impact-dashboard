@@ -35,13 +35,30 @@ def build_report_payload(
         "polarization": analysis_parameters.get("polarization"),
         "orbit_pass": analysis_parameters.get("orbit_pass"),
         "scale": analysis_parameters.get("scale"),
-        "threshold": analysis_parameters.get("threshold"),
+        "sar_change_threshold": analysis_parameters.get("threshold"),
+        "sar_water_mode": analysis_parameters.get("sar_water_mode"),
+        "sar_water_threshold": metrics.get(
+            "sar_water_threshold", analysis_parameters.get("sar_water_threshold")
+        ),
         "smoothing_radius": analysis_parameters.get("smoothing_radius"),
         "scene_counts": {
             "before": metrics.get("scene_count_before", 0),
             "after": metrics.get("scene_count_after", 0),
         },
         "sar_detected_extent_km2": metrics.get("sar_detected_extent_km2", 0.0),
+        "sar_water_before_km2": metrics.get("sar_water_before_area_km2", 0.0),
+        "sar_water_after_km2": metrics.get("sar_water_after_area_km2", 0.0),
+        "sar_new_water_km2": metrics.get("sar_new_water_area_km2", 0.0),
+        "sar_persistent_water_km2": metrics.get("sar_persistent_water_area_km2", 0.0),
+        "sar_water_loss_km2": metrics.get("sar_water_loss_area_km2", 0.0),
+        "dynamic_world_new_water_km2": metrics.get("dynamic_world_new_water_km2", 0.0),
+        "sar_dynamic_world_new_water_overlap_km2": metrics.get(
+            "sar_dynamic_world_new_water_intersection_km2", 0.0
+        ),
+        "new_water_only_sar_km2": metrics.get("new_water_only_sar_area_km2", 0.0),
+        "new_water_only_dynamic_world_km2": metrics.get(
+            "new_water_only_dynamic_world_area_km2", 0.0
+        ),
         "permanent_water_removed_km2": metrics.get("permanent_water_removed_km2", 0.0),
         "land_cover_statistics_km2": land_cover_statistics,
         "available_layers": (layer_registry or {}).get("available", []),

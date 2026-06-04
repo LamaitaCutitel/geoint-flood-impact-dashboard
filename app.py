@@ -45,6 +45,14 @@ from src.gee.permanent_water import permanent_water_mask
 from src.gee.sar_flood_detection import detect_flood_extent
 from src.gee.sar_preprocessing import build_before_after_composites
 from src.gee.gee_tile_layers import ee_tile_url
+from src.gee.sar_water_masks import (
+    overlap_percent,
+    sar_dynamic_world_overlap,
+    sar_water_area_metrics,
+    sar_water_change_masks,
+    sar_water_mask,
+    sar_water_threshold_for_mode,
+)
 from src.gee.sentinel1_collection import (
     build_aoi_from_geometry,
     count_scenes,
@@ -482,6 +490,13 @@ def _render_temporal_explorer(st: Any, params: Any, gee_available: bool) -> None
     labels = scene_recommendation_labels(scene, scenes, selected_before, selected_after, params.event_date)
     if labels:
         st.caption(" | ".join(labels))
+    preview_type = st.radio(
+        "Tip preview SAR",
+        ["Radar brut grayscale", "Doar apa SAR"],
+        horizontal=True,
+        key="sar_preview_type",
+        help="Compara scena radar bruta sau doar pixelii candidati apa SAR.",
+    )
 
     cols = st.columns([2, 1])
     with cols[0]:
@@ -522,7 +537,7 @@ def _render_temporal_explorer(st: Any, params: Any, gee_available: bool) -> None
             if not gee_status.available:
                 st.error(gee_status.message)
             else:
-                _show_scene_preview(st, params, scene, gee_status.ee)
+                _show_scene_preview(st, params, scene, gee_status.ee, preview_type)
                 st.rerun()
 
     _render_selected_pair_card(st, scenes)
@@ -606,10 +621,15 @@ def _render_pair_recommendations(st: Any, scenes: list[dict[str, Any]]) -> None:
         st.caption("Scene recomandate: " + ", ".join(scene["display_id"] for scene in recommended[:4]))
 
 
-def _show_scene_preview(st: Any, params: Any, scene: dict[str, Any], ee: Any) -> None:
+def _show_scene_preview(st: Any, params: Any, scene: dict[str, Any], ee: Any, preview_type: str) -> None:
     aoi = build_aoi_from_geometry(ee, params.county_geometry, params.bbox)
     image = selected_scene_image(ee, scene, aoi, params.smoothing_radius)
-    tile_url = ee_tile_url(image, "Sentinel-1 SAR before")
+    layer_name = "Sentinel-1 SAR before"
+    if preview_type == "Doar apa SAR":
+        threshold = sar_water_threshold_for_mode(params.polarization, params.sar_water_mode, params.sar_water_threshold)
+        image = sar_water_mask(image, threshold, aoi, params.minimum_connected_pixels)
+        layer_name = "SAR water BEFORE"
+    tile_url = ee_tile_url(image, layer_name)
     if not tile_url:
         st.error("Nu s-a putut genera tile URL pentru scena curenta.")
         return
@@ -633,8 +653,16 @@ def _show_candidate_compare(st: Any, ee: Any) -> None:
     aoi = build_aoi_from_geometry(ee, params.county_geometry, params.bbox)
     before_image = selected_scene_image(ee, before, aoi, params.smoothing_radius)
     after_image = selected_scene_image(ee, after, aoi, params.smoothing_radius)
-    before_tile = ee_tile_url(before_image, "Sentinel-1 SAR before")
-    after_tile = ee_tile_url(after_image, "Sentinel-1 SAR after")
+    before_layer_name = "Sentinel-1 SAR before"
+    after_layer_name = "Sentinel-1 SAR after"
+    if st.session_state.get("sar_preview_type") == "Doar apa SAR":
+        threshold = sar_water_threshold_for_mode(params.polarization, params.sar_water_mode, params.sar_water_threshold)
+        before_image = sar_water_mask(before_image, threshold, aoi, params.minimum_connected_pixels)
+        after_image = sar_water_mask(after_image, threshold, aoi, params.minimum_connected_pixels)
+        before_layer_name = "SAR water BEFORE"
+        after_layer_name = "SAR water AFTER"
+    before_tile = ee_tile_url(before_image, before_layer_name)
+    after_tile = ee_tile_url(after_image, after_layer_name)
     if not before_tile or not after_tile:
         st.error("Nu s-au putut genera tile URL-urile pentru comparatia candidata.")
         return
@@ -773,6 +801,33 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             s1_after_dates = [after_scene["acquisition_time"]]
 
         ui_log(52, "Se aplica crop dupa geometria judetului.")
+        sar_water_threshold = sar_water_threshold_for_mode(
+            params.polarization,
+            params.sar_water_mode,
+            params.sar_water_threshold,
+        )
+        ui_log(54, "Se clasifica apa SAR in scena BEFORE.")
+        sar_water_before = sar_water_mask(
+            before_image,
+            sar_water_threshold,
+            aoi,
+            params.minimum_connected_pixels,
+        )
+        ui_log(56, "Se clasifica apa SAR in scena AFTER.")
+        sar_water_after = sar_water_mask(
+            after_image,
+            sar_water_threshold,
+            aoi,
+            params.minimum_connected_pixels,
+        )
+        ui_log(57, "Se calculeaza apa noua, apa persistenta si pierderea de apa SAR.")
+        sar_water_changes = sar_water_change_masks(sar_water_before, sar_water_after, aoi)
+        sar_water_masks = {
+            "sar_water_before": sar_water_before,
+            "sar_water_after": sar_water_after,
+            **sar_water_changes,
+        }
+        sar_water_metrics = sar_water_area_metrics(ee, sar_water_masks, aoi, params.scale)
 
         ui_log(58, "Se calculeaza diferenta SAR.")
         ui_log(62, "Se aplica pragul SAR.")
@@ -844,18 +899,18 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             detection.flood_mask,
             aoi,
         )
+        sar_dw_overlap_masks = sar_dynamic_world_overlap(
+            sar_water_changes["sar_new_water"],
+            water_change_masks["dynamic_world_new_water"],
+            aoi,
+        )
         dynamic_world_new_water_km2 = mask_area_km2(ee, water_change_masks["dynamic_world_new_water"], aoi, params.scale)
         dynamic_world_water_loss_km2 = mask_area_km2(ee, water_change_masks["dynamic_world_water_loss"], aoi, params.scale)
-        sar_dw_intersection_km2 = mask_area_km2(
-            ee,
-            water_change_masks["sar_dynamic_world_new_water_intersection"],
-            aoi,
-            params.scale,
-        )
-        sar_dw_overlap_percent = (
-            round((sar_dw_intersection_km2 / detection.detected_extent_km2) * 100, 2)
-            if detection.detected_extent_km2
-            else 0.0
+        sar_dw_overlap_metrics = sar_water_area_metrics(ee, sar_dw_overlap_masks, aoi, params.scale)
+        sar_dw_intersection_km2 = sar_dw_overlap_metrics["sar_dynamic_world_new_water_overlap_area_km2"]
+        sar_dw_overlap_percent = overlap_percent(
+            sar_dw_intersection_km2,
+            sar_water_metrics["sar_new_water_area_km2"],
         )
         land_cover_stats = land_cover_intersection_stats(
             ee,
@@ -891,6 +946,8 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             land_cover_after,
             land_cover_changes,
             water_change_masks,
+            sar_water_masks,
+            sar_dw_overlap_masks,
             s2_products,
             dem_products,
             layer_metadata,
@@ -918,10 +975,19 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "sentinel2_scene_count_before": s2_products.scene_count_before,
             "sentinel2_scene_count_after": s2_products.scene_count_after,
             "sar_detected_extent_km2": detection.detected_extent_km2,
+            "sar_water_threshold": sar_water_threshold,
+            "sar_water_mode": params.sar_water_mode,
+            "sar_water_before_area_km2": sar_water_metrics["sar_water_before_area_km2"],
+            "sar_water_after_area_km2": sar_water_metrics["sar_water_after_area_km2"],
+            "sar_new_water_area_km2": sar_water_metrics["sar_new_water_area_km2"],
+            "sar_persistent_water_area_km2": sar_water_metrics["sar_persistent_water_area_km2"],
+            "sar_water_loss_area_km2": sar_water_metrics["sar_water_loss_area_km2"],
             "permanent_water_removed_km2": detection.permanent_water_removed_km2,
             "dynamic_world_new_water_km2": round(dynamic_world_new_water_km2, 4),
             "dynamic_world_water_loss_km2": round(dynamic_world_water_loss_km2, 4),
             "sar_dynamic_world_new_water_intersection_km2": round(sar_dw_intersection_km2, 4),
+            "new_water_only_sar_area_km2": sar_dw_overlap_metrics["new_water_only_sar_area_km2"],
+            "new_water_only_dynamic_world_area_km2": sar_dw_overlap_metrics["new_water_only_dynamic_world_area_km2"],
             "sar_dynamic_world_overlap_percent": sar_dw_overlap_percent,
             "dominant_land_cover_class": land_cover_summary["dominant_class"],
             "crops_intersected_km2": land_cover_summary["crops_intersected_km2"],
@@ -978,6 +1044,8 @@ def _layer_images(
     land_cover_after: Any,
     land_cover_changes: Any,
     water_change_masks: dict[str, Any],
+    sar_water_masks: dict[str, Any],
+    sar_dw_overlap_masks: dict[str, Any],
     s2_products: Any,
     dem_products: Any,
     layer_metadata: dict[str, dict[str, Any]],
@@ -999,11 +1067,17 @@ def _layer_images(
         add("sar_before", "Sentinel-1 SAR before", "Sentinel-1 SAR", "before", before_image, True)
     if params.show_sar_after:
         add("sar_after", "Sentinel-1 SAR after", "Sentinel-1 SAR", "after", after_image, True)
+    if params.show_sar_water_layers:
+        add("sar_water_before", "SAR water BEFORE", "Apa observata prin SAR", "before", sar_water_masks.get("sar_water_before"))
+        add("sar_water_after", "SAR water AFTER", "Apa observata prin SAR", "after", sar_water_masks.get("sar_water_after"))
+        add("sar_new_water", "SAR new water", "Apa observata prin SAR", "result", sar_water_masks.get("sar_new_water"), True)
+        add("sar_persistent_water", "SAR persistent water", "Apa observata prin SAR", "result", sar_water_masks.get("sar_persistent_water"))
+        add("sar_water_loss", "SAR water loss", "Apa observata prin SAR", "delta", sar_water_masks.get("sar_water_loss"))
     if params.show_sar_change:
         add("sar_difference", "SAR difference", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_difference"))
         add("sar_ratio", "SAR ratio", "Sentinel-1 SAR", "delta", detection.change_image.select("sar_ratio"))
     if params.show_detected_flood_extent:
-        add("flood_extent", "detected flood extent", "Sentinel-1 SAR", "result", detection.flood_mask, True)
+        add("flood_extent", "SAR flood extent filtrat", "Apa observata prin SAR", "result", detection.flood_mask)
     if params.show_permanent_water and permanent_water is not None:
         add("permanent_water", "permanent water", "Date auxiliare", "static", permanent_water)
     if params.show_land_cover:
@@ -1013,7 +1087,10 @@ def _layer_images(
         add("dynamic_world_new_water", "Dynamic World - apa noua", "Cresterea apei - Dynamic World", "result", water_change_masks.get("dynamic_world_new_water"), True)
         add("dynamic_world_water_loss", "Dynamic World - pierdere apa", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_water_loss"))
         add("dynamic_world_other_change", "Dynamic World - alte diferente", "Cresterea apei - Dynamic World", "delta", water_change_masks.get("dynamic_world_other_change"))
-        add("sar_dynamic_world_new_water_intersection", "Intersectie SAR x apa noua Dynamic World", "Cresterea apei - Dynamic World", "result", water_change_masks.get("sar_dynamic_world_new_water_intersection"), True)
+        if params.show_sar_dynamic_world_correlation:
+            add("sar_dynamic_world_new_water_overlap", "SAR x Dynamic World new water overlap", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("sar_dynamic_world_new_water_overlap"), True)
+            add("new_water_only_sar", "New water only SAR", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_sar"))
+            add("new_water_only_dynamic_world", "New water only Dynamic World", "Corelare SAR x Dynamic World", "result", sar_dw_overlap_masks.get("new_water_only_dynamic_world"))
         add("intersected_land_cover", "land cover", "Land cover", "result", land_cover_after.updateMask(detection.flood_mask))
     if s2_products.rgb_before is not None:
         add("rgb_before", "RGB before", "Sentinel-2 optic", "before", s2_products.rgb_before)
@@ -1070,9 +1147,14 @@ def _layer_metadata(
     metadata = {
         "sar_before": s1_before,
         "sar_after": s1_after,
+        "sar_water_before": dates_metadata("COPERNICUS/S1_GRD", s1_before_dates, "Pixeli SAR compatibili cu apa in scena BEFORE."),
+        "sar_water_after": dates_metadata("COPERNICUS/S1_GRD", s1_after_dates, "Pixeli SAR compatibili cu apa in scena AFTER."),
+        "sar_new_water": dates_metadata("COPERNICUS/S1_GRD", sorted(set(s1_before_dates + s1_after_dates)), "Apa observata prin SAR in AFTER, absenta in BEFORE."),
+        "sar_persistent_water": dates_metadata("COPERNICUS/S1_GRD", sorted(set(s1_before_dates + s1_after_dates)), "Apa observata prin SAR atat in BEFORE, cat si in AFTER."),
+        "sar_water_loss": dates_metadata("COPERNICUS/S1_GRD", sorted(set(s1_before_dates + s1_after_dates)), "Apa observata prin SAR in BEFORE, absenta in AFTER."),
         "sar_difference": dates_metadata("COPERNICUS/S1_GRD", sorted(set(s1_before_dates + s1_after_dates)), "Diferenta before - after."),
         "sar_ratio": dates_metadata("COPERNICUS/S1_GRD", sorted(set(s1_before_dates + s1_after_dates)), "Raport before / after."),
-        "flood_extent": dates_metadata("COPERNICUS/S1_GRD + JRC GSW", sorted(set(s1_before_dates + s1_after_dates)), "Extindere preliminara detectata dupa prag SAR si masca apei recurente/permanente."),
+        "flood_extent": dates_metadata("COPERNICUS/S1_GRD + JRC GSW", sorted(set(s1_before_dates + s1_after_dates)), "SAR flood extent filtrat: change detection, filtrare spatiala si masca JRC configurabila."),
         "permanent_water": static_jrc,
         "dynamic_world_before": dw_before,
         "dynamic_world_after": dw_after,
@@ -1080,7 +1162,9 @@ def _layer_metadata(
         "dynamic_world_new_water": dates_metadata("GOOGLE/DYNAMICWORLD/V1", sorted(set(dw_before_dates + dw_after_dates)), "Apa noua evidentiata prin Dynamic World: non-apa BEFORE -> apa AFTER."),
         "dynamic_world_water_loss": dates_metadata("GOOGLE/DYNAMICWORLD/V1", sorted(set(dw_before_dates + dw_after_dates)), "Pierdere apa evidentiata prin Dynamic World: apa BEFORE -> non-apa AFTER."),
         "dynamic_world_other_change": dates_metadata("GOOGLE/DYNAMICWORLD/V1", sorted(set(dw_before_dates + dw_after_dates)), "Diferente observate intre clasificari, excluzand apa noua si pierderea de apa."),
-        "sar_dynamic_world_new_water_intersection": dates_metadata("COPERNICUS/S1_GRD + GOOGLE/DYNAMICWORLD/V1", sorted(set(s1_before_dates + s1_after_dates + dw_before_dates + dw_after_dates)), "Intersectie cu extinderea preliminara SAR si apa noua Dynamic World."),
+        "sar_dynamic_world_new_water_overlap": dates_metadata("COPERNICUS/S1_GRD + GOOGLE/DYNAMICWORLD/V1", sorted(set(s1_before_dates + s1_after_dates + dw_before_dates + dw_after_dates)), "Zone de apa noua identificate de SAR water si Dynamic World."),
+        "new_water_only_sar": dates_metadata("COPERNICUS/S1_GRD + GOOGLE/DYNAMICWORLD/V1", sorted(set(s1_before_dates + s1_after_dates + dw_before_dates + dw_after_dates)), "Apa noua observata prin SAR, fara corespondent Dynamic World."),
+        "new_water_only_dynamic_world": dates_metadata("COPERNICUS/S1_GRD + GOOGLE/DYNAMICWORLD/V1", sorted(set(s1_before_dates + s1_after_dates + dw_before_dates + dw_after_dates)), "Apa noua Dynamic World, fara corespondent SAR water."),
         "intersected_land_cover": dates_metadata("GOOGLE/DYNAMICWORLD/V1 + flood mask", dw_after_dates, "Terenuri after intersectate cu extinderea detectata."),
         "rgb_before": s2_before,
         "rgb_after": s2_after,

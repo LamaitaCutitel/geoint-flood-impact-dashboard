@@ -21,6 +21,8 @@ class AnalysisParameters:
     orbit_pass: str = "BOTH"
     smoothing_radius: int = 30
     threshold: float = 1.25
+    sar_water_mode: str = "Echilibrat"
+    sar_water_threshold: float = -18.0
     minimum_connected_pixels: int = 8
     mask_permanent_water: bool = True
     jrc_water_mode: str = "Echilibrat"
@@ -33,6 +35,8 @@ class AnalysisParameters:
     show_sar_after: bool = True
     show_sar_change: bool = True
     show_detected_flood_extent: bool = True
+    show_sar_water_layers: bool = True
+    show_sar_dynamic_world_correlation: bool = True
     use_median_composite: bool = False
     comparison_preset: str = "Before SAR vs After SAR"
     left_layer: str = "Sentinel-1 SAR before"

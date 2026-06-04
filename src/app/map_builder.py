@@ -516,8 +516,10 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
             source = metadata.get("source") or "sursa nespecificata"
             details = metadata.get("details") or layer.get("warning") or ""
             status = "disponibil" if layer.get("available", True) else "indisponibil"
+            color = _legend_color(layer.get("id") or "")
             rows.append(
                 "<li>"
+                f"<span style=\"display:inline-block;width:12px;height:12px;background:{color};border:1px solid #334155;margin-right:4px\"></span>"
                 f"<strong>{layer.get('display_name')}</strong> ({status})<br>"
                 f"Sursa: {source}<br>"
                 f"Zi/scene: {dates_text}"
@@ -531,6 +533,25 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
             "</details>"
         )
     return "".join(parts)
+
+
+def _legend_color(layer_id: str) -> str:
+    colors = {
+        "sar_water_before": "#7dd3fc",
+        "sar_water_after": "#2563eb",
+        "sar_new_water": "#22d3ee",
+        "sar_persistent_water": "#1e3a8a",
+        "sar_water_loss": "#f97316",
+        "flood_extent": "#be185d",
+        "dynamic_world_new_water": "#818cf8",
+        "dynamic_world_water_loss": "#f59e0b",
+        "dynamic_world_other_change": "#a78bfa",
+        "sar_dynamic_world_new_water_overlap": "#16a34a",
+        "new_water_only_sar": "#67e8f9",
+        "new_water_only_dynamic_world": "#9333ea",
+        "permanent_water": "#0f172a",
+    }
+    return colors.get(layer_id, "#94a3b8")
 
 
 def build_result_map_from_registry_payload(
@@ -595,8 +616,8 @@ def build_result_map_from_registry_payload(
 
 def add_default_side_by_side(registry: LayerRegistry) -> None:
     layers_by_id = {layer.id: layer for layer in registry.available_layers()}
-    before = layers_by_id.get("sar_before")
-    after = layers_by_id.get("sar_after")
+    before = layers_by_id.get("sar_water_before") or layers_by_id.get("sar_before")
+    after = layers_by_id.get("sar_water_after") or layers_by_id.get("sar_after")
     if not before or not after:
         return
     if not before.folium_layer or not after.folium_layer:
