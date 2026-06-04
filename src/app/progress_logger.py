@@ -72,7 +72,7 @@ class ProgressLogger:
         )
 
 
-def render_progress(streamlit_module, logger: ProgressLogger) -> None:
+def render_progress(streamlit_module, logger: ProgressLogger, key_prefix: str = "progress") -> None:
     percent = logger.current_percent()
     streamlit_module.subheader("Jurnal live de initializare si procesare")
     with streamlit_module.status("Stare aplicatie", expanded=True):
@@ -97,12 +97,14 @@ def render_progress(streamlit_module, logger: ProgressLogger) -> None:
             data=logger.as_text(),
             file_name="processing_log.txt",
             mime="text/plain",
+            key=f"{key_prefix}_processing_log_txt",
         )
         col_json.download_button(
             "Descarca jurnalul procesarii JSON",
             data=logger.as_json(),
             file_name="processing_log.json",
             mime="application/json",
+            key=f"{key_prefix}_processing_log_json",
         )
 
 

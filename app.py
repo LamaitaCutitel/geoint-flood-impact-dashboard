@@ -29,7 +29,7 @@ from src.app.map_builder import (
     build_sar_candidate_compare_map,
     build_sar_preview_map,
 )
-from src.app.osm_impact import fetch_osm_operational_impact
+from src.app.osm_impact import fetch_osm_operational_impact_payload
 from src.app.progress_logger import ProgressLogger, bootstrap_startup_logger, render_progress
 from src.app.results_panel import render_land_cover, render_metric_cards
 from src.app.layer_styles import layer_style
@@ -196,7 +196,7 @@ def main() -> None:
             last_analysis=st.session_state.get("last_analysis_result"),
         )
         _render_usage(st)
-        render_progress(st, st.session_state.get("analysis_logger", startup_logger))
+        render_progress(st, st.session_state.get("analysis_logger", startup_logger), key_prefix="main_progress")
 
     if "last_analysis_result" in st.session_state:
         _render_secondary_analysis_result(st, st.session_state.last_analysis_result)
@@ -319,6 +319,7 @@ def _render_current_map(
             params,
             counties_geojson,
             selected_feature,
+            osm_layers=last_result.get("osm_layers"),
         )
         map_data = st_folium(
             result_map.main_map,
@@ -1026,8 +1027,38 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             dem_products,
             layer_metadata,
         )
+        osm_metrics: dict[str, Any] = {}
+        osm_layers: dict[str, dict[str, Any]] = {}
+        if params.show_osm_impact:
+            ui_log(91, "Se interogheaza OpenStreetMap pentru expunere operationala estimata.")
+            try:
+                osm_payload = fetch_osm_operational_impact_payload(
+                    params.bbox,
+                    buffer_meters=params.osm_buffer_meters,
+                    limit=params.osm_query_limit,
+                )
+                osm_metrics = osm_payload["metrics"]
+                osm_layers = osm_payload["layers"]
+                if osm_metrics.get("osm_query_errors"):
+                    logger.warn(
+                        "Unele categorii OSM nu au raspuns la timp: "
+                        + "; ".join(str(item) for item in osm_metrics["osm_query_errors"])
+                    )
+            except Exception as exc:
+                logger.warn(f"Impactul operational OSM nu a putut fi calculat: {exc}")
+                osm_metrics = {
+                    "osm_buildings_potentially_affected": 0,
+                    "osm_roads_intersected_km": 0.0,
+                    "osm_critical_assets": 0,
+                    "osm_railways_intersected_km": 0.0,
+                    "osm_bridges": 0,
+                    "osm_query_buffer_m": params.osm_buffer_meters,
+                    "osm_query_limit": params.osm_query_limit,
+                    "osm_elements_returned": 0,
+                    "osm_query_errors": [str(exc)],
+                }
         selected_feature = selected_county_feature(counties_geojson, params.county_name) if counties_geojson else None
-        maps = build_maps(layer_images, params, counties_geojson, selected_feature, registry)
+        maps = build_maps(layer_images, params, counties_geojson, selected_feature, registry, osm_layers=osm_layers)
         layer_registry_payload = maps.registry.report_payload() if maps.registry else {"available": [], "unavailable": []}
         ui_log(92, "Se actualizeaza harta interactiva.")
 
@@ -1074,30 +1105,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "processing_time": f"{logger.duration_seconds()} s",
             "jrc_water_mode": params.jrc_water_mode,
         }
-        if params.show_osm_impact:
-            ui_log(93, "Se estimeaza expunerea operationala OSM.")
-            try:
-                metrics.update(
-                    fetch_osm_operational_impact(
-                        params.bbox,
-                        buffer_meters=params.osm_buffer_meters,
-                        limit=params.osm_query_limit,
-                    )
-                )
-            except Exception as exc:
-                logger.warn(f"Impactul operational OSM nu a putut fi calculat: {exc}")
-                metrics.update(
-                    {
-                        "osm_buildings_potentially_affected": 0,
-                        "osm_roads_intersected_km": 0.0,
-                        "osm_critical_assets": 0,
-                        "osm_railways_intersected_km": 0.0,
-                        "osm_bridges": 0,
-                        "osm_query_buffer_m": params.osm_buffer_meters,
-                        "osm_query_limit": params.osm_query_limit,
-                        "osm_elements_returned": 0,
-                    }
-                )
+        metrics.update(osm_metrics)
 
         ui_log(94, "Se calculeaza statisticile.")
         ui_log(97, "Se genereaza raportul.")
@@ -1121,6 +1129,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             "analysis_params": params.as_dict(),
             "logger": logger,
             "report_paths": report_paths,
+            "osm_layers": osm_layers,
         }
         st.session_state.pop("sar_preview", None)
         st.session_state.map_generation = st.session_state.get("map_generation", 0) + 1
@@ -1320,12 +1329,13 @@ def _render_secondary_analysis_result(st: Any, result: dict[str, Any]) -> None:
         with tabs[4]:
             logger = result.get("logger")
             if logger:
-                render_progress(st, logger)
+                render_progress(st, logger, key_prefix="results_progress")
                 st.download_button(
                     "Descarca jurnal JSON",
                     data=logger.as_json(),
                     file_name="analysis_log.json",
                     mime="application/json",
+                    key="results_analysis_log_json",
                 )
         with tabs[5]:
             st.json({key: str(value) for key, value in result["report_paths"].items()})
@@ -1342,6 +1352,7 @@ def _render_secondary_analysis_result(st: Any, result: dict[str, Any]) -> None:
                 ),
                 file_name="flood_impact_report.json",
                 mime="application/json",
+                key="results_flood_impact_report_json",
             )
 
 

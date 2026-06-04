@@ -263,7 +263,7 @@ def sidebar_parameters(
                     ),
                 )
                 osm_buffer = st.slider("Buffer OSM metri", 0, 2000, 500, 100)
-                osm_limit = st.selectbox("Limita elemente OSM", [1000, 2500, 5000, 10000], index=2)
+                osm_limit = st.selectbox("Limita elemente OSM", [500, 1000, 2500, 5000], index=0)
 
             pair_status = st.session_state.get("sar_pair_status") or {}
             final_disabled = (

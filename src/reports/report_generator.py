@@ -75,6 +75,7 @@ def build_report_payload(
             "query_buffer_m": metrics.get("osm_query_buffer_m"),
             "query_limit": metrics.get("osm_query_limit"),
             "elements_returned": metrics.get("osm_elements_returned", 0),
+            "query_errors": metrics.get("osm_query_errors", []),
         },
         "permanent_water_removed_km2": metrics.get("permanent_water_removed_km2", 0.0),
         "land_cover_statistics_km2": land_cover_statistics,

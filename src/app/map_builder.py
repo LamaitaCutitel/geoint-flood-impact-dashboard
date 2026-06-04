@@ -309,6 +309,7 @@ def build_maps(
     counties_geojson: dict[str, Any] | None = None,
     selected_feature: dict[str, Any] | None = None,
     registry: LayerRegistry | None = None,
+    osm_layers: dict[str, dict[str, Any]] | None = None,
 ) -> MapBundle:
     registry = registry or LayerRegistry()
     center = bbox_center(params.bbox)
@@ -355,6 +356,7 @@ def build_maps(
             )
         )
 
+    add_osm_operational_layers(main_map, registry, osm_layers)
     add_default_side_by_side(registry)
     DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
@@ -557,8 +559,91 @@ def _legend_color(layer_id: str) -> str:
         "new_water_only_sar": "#67e8f9",
         "new_water_only_dynamic_world": "#9333ea",
         "permanent_water": "#0f172a",
+        "osm_buildings": "#ef4444",
+        "osm_roads": "#f97316",
+        "osm_critical": "#7c3aed",
+        "osm_railways": "#111827",
+        "osm_bridges": "#0ea5e9",
     }
     return colors.get(layer_id, "#94a3b8")
+
+
+def add_osm_operational_layers(
+    folium_map: folium.Map,
+    registry: LayerRegistry,
+    osm_layers: dict[str, dict[str, Any]] | None,
+) -> None:
+    if not osm_layers:
+        return
+    for layer_id, layer_payload in osm_layers.items():
+        features = layer_payload.get("features") or []
+        display_name = layer_payload.get("display_name") or layer_id
+        color = layer_payload.get("color") or _legend_color(layer_id)
+        if not features:
+            registry.unavailable(
+                layer_id=layer_id,
+                display_name=display_name,
+                category="Impact operational OSM",
+                layer_type="vector",
+                warning="Nu au fost gasite elemente OSM in zona interogata.",
+                metadata=_osm_metadata(display_name),
+            )
+            continue
+        geojson_layer = folium.GeoJson(
+            layer_payload,
+            name=f"Impact operational OSM - {display_name}",
+            style_function=lambda feature, color=color: {
+                "color": _osm_exposure_color(feature, color),
+                "fillColor": _osm_exposure_color(feature, color),
+                "weight": 3 if feature.get("geometry", {}).get("type") != "Polygon" else 1,
+                "fillOpacity": 0.35,
+                "opacity": 0.9,
+            },
+            marker=folium.CircleMarker(radius=6, color=color, fill=True, fill_color=color, fill_opacity=0.85),
+            tooltip=folium.GeoJsonTooltip(
+                fields=["exposure_label", "name", "exposure_level"],
+                aliases=["Expunere", "Nume", "Nivel"],
+                localize=True,
+                sticky=True,
+            ),
+            show=False,
+            control=True,
+        )
+        geojson_layer.add_to(folium_map)
+        registry.add(
+            LayerEntry(
+                id=layer_id,
+                display_name=display_name,
+                category="Impact operational OSM",
+                layer_type="vector",
+                available=True,
+                comparable=False,
+                shown=False,
+                folium_layer=geojson_layer,
+                metadata=_osm_metadata(display_name),
+            )
+        )
+
+
+def _osm_metadata(display_name: str) -> dict[str, Any]:
+    return {
+        "source": "OpenStreetMap via Overpass API",
+        "date": "interogare la rularea analizei",
+        "details": (
+            f"{display_name}. Expunere estimata operational, raportata la zona analizata "
+            "dupa rularea rasterului SAR flood extent filtrat. Culori expunere: high rosu, "
+            "medium portocaliu, low galben."
+        ),
+    }
+
+
+def _osm_exposure_color(feature: dict[str, Any], fallback: str) -> str:
+    level = (feature.get("properties") or {}).get("exposure_level")
+    return {
+        "high": "#dc2626",
+        "medium": "#f97316",
+        "low": "#eab308",
+    }.get(level, fallback)
 
 
 def build_result_map_from_registry_payload(
@@ -566,6 +651,7 @@ def build_result_map_from_registry_payload(
     params: Any,
     counties_geojson: dict[str, Any] | None = None,
     selected_feature: dict[str, Any] | None = None,
+    osm_layers: dict[str, dict[str, Any]] | None = None,
 ) -> MapBundle:
     registry = LayerRegistry()
     center = bbox_center(params.bbox)
@@ -614,6 +700,7 @@ def build_result_map_from_registry_payload(
             metadata=layer_meta.get("metadata"),
         )
 
+    add_osm_operational_layers(main_map, registry, osm_layers)
     add_default_side_by_side(registry)
     DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
