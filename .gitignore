@@ -3,9 +3,12 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.pytest_*/
+.streamlit-*.log
 data/output/
 data/cache/
 cache/
+.codex-sprint-logs/
 *.tif
 *.tiff
 *.zip

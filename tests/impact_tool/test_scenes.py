@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from src.impact_tool.cache import PersistentCache
-from src.impact_tool.scenes import confirm_scene_pair, search_scenes, select_scene_pair
+from src.impact_tool.scenes import (
+    confirm_scene_pair,
+    hydrate_scene_thumbnails,
+    search_scenes,
+    select_scene_pair,
+    timeline_entries,
+)
 
 
 def _scene(scene_id: str, timestamp: str, orbit: int = 80) -> dict:
@@ -94,5 +100,58 @@ def test_swipe_has_single_control_and_fallback() -> None:
     from src.impact_tool.map.builder import build_shell_map
 
     html = build_shell_map(None, "Galati", preview_tiles={"before": "a", "after": "b"}).get_root().render()
-    assert html.count("leaflet-side-by-side@2.2.0") == 1
-    assert "Separator indisponibil" in html
+    assert html.count("impact-swipe-control") >= 1
+    assert html.count("Comparație BEFORE AFTER") == 1
+    assert "leaflet-side-by-side" not in html
+
+
+class FakeThumbnailImage:
+    def getThumbURL(self, params):
+        return "https://example.test/thumbnail.png"
+
+
+def test_thumbnail_cache_hit_and_miss(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.impact_tool.scenes.selected_scene_image",
+        lambda *args: FakeThumbnailImage(),
+    )
+    cache = PersistentCache(tmp_path)
+    scenes = [_scene("scene", "2024-01-01T00:00:00Z")]
+    first, first_hits = hydrate_scene_thumbnails(
+        cache=cache,
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    second, second_hits = hydrate_scene_thumbnails(
+        cache=cache,
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    assert first[0]["thumbnail_url"].endswith("thumbnail.png")
+    assert first_hits == 0
+    assert second_hits == 1
+
+
+def test_timeline_is_chronological() -> None:
+    entries = timeline_entries(
+        [
+            _scene("later", "2024-01-13T00:00:00Z"),
+            _scene("earlier", "2024-01-01T00:00:00Z"),
+        ]
+    )
+    assert [entry["scene_id"] for entry in entries] == ["earlier", "later"]
+
+
+def test_single_scene_preview_layer() -> None:
+    from src.impact_tool.map.builder import build_shell_map
+
+    html = build_shell_map(
+        None,
+        "Galati",
+        preview_scene_tile="https://tiles/preview/{z}/{x}/{y}",
+    ).get_root().render()
+    assert html.count("https://tiles/preview/{z}/{x}/{y}") == 1

@@ -8,7 +8,7 @@ from src.impact_tool.cache import PersistentCache, analysis_hash
 from src.impact_tool.dynamic_world import run_dynamic_world_analysis
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.osm import load_osm_categories, retry_osm_category
-from src.impact_tool.osm_impact import classify_osm_impact
+from src.impact_tool.osm_impact import buffered_geometry, classify_osm_impact
 from src.impact_tool.sar import SarParameters, run_sar_analysis
 
 
@@ -43,6 +43,8 @@ def execute_analysis(
             parameters,
         )
         state.analysis_results["sar"] = sar
+        state.preview_scene_id = ""
+        state.preview_scene_tile = ""
         state.cache_events.append("Analiza SAR strict BEFORE / AFTER a fost finalizată.")
         _progress(state, progress_callback, 55, "Calcul apă nouă evidențiată prin SAR")
         try:
@@ -100,11 +102,15 @@ def execute_osm_loading(
         state.analysis_error = "Datele OSM pot fi încărcate numai după analiza SAR."
         return False
     try:
+        query_geometry, query_bbox = buffered_geometry(
+            state.active_geometry or {},
+            max(state.buffer_meters, 500),
+        )
         arguments = {
             "analysis_complete": True,
             "aoi_hash": state.active_area_hash,
-            "bbox": state.active_area_bbox,
-            "geometry": state.active_geometry or {},
+            "bbox": query_bbox,
+            "geometry": query_geometry,
             "cache": PersistentCache(),
         }
         if state.osm_retry_category:
@@ -154,6 +160,7 @@ def recalculate_osm_impact(state: ImpactToolState) -> bool:
         raw.get("layers", {}),
         water_geometry,
         state.buffer_meters,
+        active_geometry=state.active_geometry,
     )
     state.cache_events.append(
         f"Impactul OSM a fost recalculat pentru bufferul de {state.buffer_meters} m."

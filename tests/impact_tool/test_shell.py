@@ -103,3 +103,9 @@ def test_shell_has_single_leaflet_draw_control_and_no_analysis_layers():
     assert "SAR difference" not in source
     assert "SideBySideLayers" not in source
     assert "DynamicCompareControl" not in source
+
+
+def test_layer_controls_are_processed_before_map_render():
+    source = (PROJECT_ROOT / "src/impact_tool/ui/shell.py").read_text(encoding="utf-8")
+
+    assert source.index("_render_layer_controls(st, state)") < source.index("st_folium(")

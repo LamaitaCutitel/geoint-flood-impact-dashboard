@@ -8,6 +8,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
@@ -28,7 +30,7 @@ from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 
 
-REPORT_VERSION = "1.0"
+REPORT_VERSION = "2.0"
 MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
@@ -122,6 +124,10 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
         "10. Analiza OSM × Dynamic World",
         "Elementele OSM sunt interpretate ca potențial expuse și necesită verificare în teren.",
     )
+    story.append(Paragraph("Corelare OSM × Dynamic World", styles["Heading3"]))
+    story.append(Paragraph(_osm_dynamic_world_summary(state), styles["BodyText"]))
+    story.append(Paragraph("Completitudine OpenStreetMap", styles["Heading3"]))
+    story.append(_osm_status_table(state))
     story.append(PageBreak())
     _section(story, styles, "11. Harta sintetică a impactului inundației", "")
     story.append(Image(_synthetic_map(state), width=17 * cm, height=9.5 * cm))
@@ -205,12 +211,82 @@ def _scene_table(state: ImpactToolState) -> Table:
 def _metrics_table(metrics: dict[str, Any]) -> Table:
     rows = [["Indicator", "Valoare"]]
     rows.extend(
-        [[key.replace("_", " "), str(value)] for key, value in metrics.items()]
+        [[_metric_label(key), _format_value(value)] for key, value in metrics.items()]
         or [["Date", "indisponibile"]]
     )
     table = Table(rows, repeatRows=1, colWidths=[10 * cm, 5 * cm])
     table.setStyle(_table_style())
     return table
+
+
+METRIC_LABELS = {
+    "sar_water_before_area_km2": "Suprafață apă BEFORE (km²)",
+    "sar_water_after_area_km2": "Suprafață apă AFTER (km²)",
+    "sar_new_water_area_km2": "Extindere preliminară SAR (km²)",
+    "buildings_direct": "Clădiri intersectate direct",
+    "buildings_buffer": "Clădiri în buffer",
+    "buildings_area_m2": "Suprafață totală clădiri (m²)",
+    "buildings_overlap_m2": "Suprapunere clădiri-apă (m²)",
+    "buildings_complete": "Clădiri complet intersectate",
+    "buildings_partial": "Clădiri parțial intersectate",
+    "roads_direct_km": "Drumuri intersectate direct (km)",
+    "roads_buffer_km": "Drumuri în buffer (km)",
+    "railways_direct_km": "Căi ferate intersectate direct (km)",
+    "railways_buffer_km": "Căi ferate în buffer (km)",
+    "bridges_direct": "Poduri intersectate direct",
+    "bridges_buffer": "Poduri în buffer",
+    "critical_direct": "Obiective critice intersectate direct",
+    "critical_buffer": "Obiective critice în buffer",
+}
+
+
+def _metric_label(key: str) -> str:
+    return METRIC_LABELS.get(key, key.replace("_", " ").capitalize())
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return "; ".join(
+            f"{_metric_label(str(key))}: {_format_value(item)}"
+            for key, item in value.items()
+        ) or "indisponibil"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _osm_status_table(state: ImpactToolState) -> Table:
+    rows = [["Categorie OSM", "Obiecte", "Sursă", "Data cache", "Completitudine"]]
+    for category, status in state.osm_status.items():
+        rows.append(
+            [
+                category.capitalize(),
+                str(status.get("count", 0)),
+                status.get("source", "indisponibil"),
+                str(status.get("cache_date", "indisponibil"))[:19],
+                status.get("completeness", "necunoscută"),
+            ]
+        )
+    if len(rows) == 1:
+        rows.append(["Date OSM", "0", "indisponibil", "indisponibil", "necunoscută"])
+    table = Table(rows, repeatRows=1)
+    table.setStyle(_table_style())
+    return table
+
+
+def _osm_dynamic_world_summary(state: ImpactToolState) -> str:
+    dynamic = state.analysis_results.get("dynamic_world") or {}
+    osm = state.analysis_results.get("osm_impact") or {}
+    overlap = dynamic.get("metrics", {}).get(
+        "sar_dynamic_world_new_water_overlap_area_km2",
+        0,
+    )
+    affected = (osm.get("metrics") or {}).get("status_counts", {})
+    return (
+        f"Suprapunerea SAR–Dynamic World calculată este {overlap} km². "
+        f"Distribuția geometrică a elementelor OSM este: {_format_value(affected)}. "
+        "Interpretarea este preliminară și necesită verificare în teren."
+    )
 
 
 def _table_style() -> TableStyle:
@@ -269,10 +345,52 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
     _plot_geometry(axis, sar.get("new_water_geometry"), "#06b6d4", 1.2, 0.6)
     impact = state.analysis_results.get("osm_impact") or {}
     _plot_geometry(axis, impact.get("buffer_geometry"), "#f59e0b", 1.0, 0.12)
+    layer_styles = {
+        "osm_buildings": ("#dc2626", 0.8, 0.28),
+        "osm_roads": ("#f97316", 1.4, 0.9),
+        "osm_railways": ("#7c3aed", 1.2, 0.9),
+        "osm_bridges": ("#0ea5e9", 2.0, 0.9),
+        "osm_critical": ("#b91c1c", 1.0, 1.0),
+    }
+    for layer_id, layer in impact.get("layers", {}).items():
+        color, width, alpha = layer_styles.get(layer_id, ("#64748b", 1.0, 0.7))
+        for feature in layer.get("features", []):
+            if feature.get("properties", {}).get("status") == "Neexpus":
+                continue
+            _plot_osm_feature(axis, feature.get("geometry"), color, width, alpha)
     axis.set_title("Harta sintetică a impactului inundației")
     axis.grid(color="#e2e8f0", linewidth=0.5)
+    axis.annotate(
+        "N",
+        xy=(0.96, 0.92),
+        xytext=(0.96, 0.78),
+        xycoords="axes fraction",
+        arrowprops={"arrowstyle": "-|>", "color": "#0f172a", "lw": 1.5},
+        ha="center",
+        fontsize=11,
+        fontweight="bold",
+    )
+    x_min, x_max = axis.get_xlim()
+    y_min, y_max = axis.get_ylim()
+    scale_width = (x_max - x_min) * 0.12
+    scale_y = y_min + (y_max - y_min) * 0.06
+    scale_x = x_min + (x_max - x_min) * 0.05
+    axis.plot([scale_x, scale_x + scale_width], [scale_y, scale_y], color="#0f172a", linewidth=3)
+    axis.text(scale_x, scale_y + (y_max - y_min) * 0.02, "scară orientativă", fontsize=7)
+    axis.legend(
+        handles=[
+            Patch(facecolor="#06b6d4", alpha=0.6, label="Apă nouă SAR"),
+            Patch(facecolor="#f59e0b", alpha=0.2, label="Buffer"),
+            Patch(facecolor="#dc2626", alpha=0.35, label="Clădiri"),
+            Line2D([0], [0], color="#f97316", lw=2, label="Drumuri"),
+            Line2D([0], [0], color="#7c3aed", lw=2, label="Căi ferate"),
+            Line2D([0], [0], marker="o", color="w", markerfacecolor="#b91c1c", label="Obiective"),
+        ],
+        loc="lower right",
+        fontsize=7,
+    )
     output = BytesIO()
-    figure.tight_layout()
+    figure.subplots_adjust(left=0.08, right=0.98, bottom=0.12, top=0.9)
     figure.savefig(output, format="png", dpi=140)
     plt.close(figure)
     output.seek(0)
@@ -294,6 +412,28 @@ def _plot_geometry(
         if polygon.geom_type == "Polygon":
             x, y = polygon.exterior.xy
             axis.fill(x, y, facecolor=color, edgecolor=color, linewidth=width, alpha=alpha)
+
+
+def _plot_osm_feature(
+    axis: Any,
+    geometry: dict[str, Any] | None,
+    color: str,
+    width: float,
+    alpha: float,
+) -> None:
+    if not geometry:
+        return
+    item = shape(geometry)
+    parts = list(getattr(item, "geoms", [item]))
+    for part in parts:
+        if part.geom_type == "Polygon":
+            x, y = part.exterior.xy
+            axis.fill(x, y, facecolor=color, edgecolor=color, linewidth=width, alpha=alpha)
+        elif part.geom_type in {"LineString", "LinearRing"}:
+            x, y = part.xy
+            axis.plot(x, y, color=color, linewidth=width, alpha=alpha)
+        elif part.geom_type == "Point":
+            axis.scatter([part.x], [part.y], c=[color], s=28, marker="o", zorder=6)
 
 
 def _chart_datasets(state: ImpactToolState) -> list[tuple[str, dict[str, float]]]:

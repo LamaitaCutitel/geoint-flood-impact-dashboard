@@ -68,6 +68,89 @@ def scene_label(scene: dict[str, Any]) -> str:
     )
 
 
+def scene_thumbnail_url(
+    *,
+    cache: PersistentCache,
+    ee: Any,
+    aoi: Any,
+    aoi_hash: str,
+    scene: dict[str, Any],
+    dimensions: int = 320,
+) -> tuple[str, bool]:
+    key = cache.key(
+        "thumbnails",
+        aoi_hash,
+        scene.get("ee_id"),
+        scene.get("polarization"),
+        dimensions,
+    )
+    cached = cache.get("thumbnails", key)
+    if cached.hit and isinstance(cached.value, str):
+        return cached.value, True
+    image = selected_scene_image(ee, scene, aoi)
+    url = image.getThumbURL(
+        {
+            "region": aoi,
+            "dimensions": dimensions,
+            "min": -25,
+            "max": 0,
+            "palette": ["111827", "f8fafc"],
+            "format": "png",
+        }
+    )
+    cache.set("thumbnails", key, url)
+    return url, False
+
+
+def hydrate_scene_thumbnails(
+    *,
+    cache: PersistentCache,
+    ee: Any,
+    aoi: Any,
+    aoi_hash: str,
+    scenes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    hydrated = []
+    cache_hits = 0
+    for scene in scenes:
+        item = dict(scene)
+        try:
+            item["thumbnail_url"], hit = scene_thumbnail_url(
+                cache=cache,
+                ee=ee,
+                aoi=aoi,
+                aoi_hash=aoi_hash,
+                scene=scene,
+            )
+            cache_hits += int(hit)
+        except Exception as exc:
+            item["thumbnail_url"] = None
+            item.setdefault("warnings", []).append(
+                f"Thumbnail indisponibil: {exc}"
+            )
+        hydrated.append(item)
+    return hydrated, cache_hits
+
+
+def timeline_entries(scenes: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "scene_id": str(scene.get("ee_id", "")),
+            "date": str(scene.get("acquisition_time", ""))[:10],
+            "orbit_pass": str(scene.get("orbit_pass", "necunoscut")),
+        }
+        for scene in sorted(
+            scenes,
+            key=lambda item: str(item.get("acquisition_time", "")),
+        )
+    ]
+
+
+def preview_tile_for_scene(ee: Any, aoi: Any, scene: dict[str, Any]) -> str:
+    image = selected_scene_image(ee, scene, aoi)
+    return ee_tile_url(image, "Sentinel-1 SAR before") or ""
+
+
 def select_scene_pair(
     scenes: list[dict[str, Any]],
     before_id: str,

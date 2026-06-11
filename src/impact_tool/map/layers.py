@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
 from html import escape
+from typing import Any
 
 import folium
+from folium.plugins import MarkerCluster
+from shapely.geometry import shape
 
 from src.app.county_boundaries import county_display_name
 
@@ -27,6 +29,7 @@ def add_county_outlines(
     folium.GeoJson(
         counties_geojson,
         name="Limite județe",
+        control=False,
         style_function=style,
         tooltip=folium.GeoJsonTooltip(fields=["NAME_LATN"], aliases=["Județ"]),
         show=True,
@@ -46,6 +49,7 @@ def add_aoi_layer(
             "geometry": aoi_geometry,
         },
         name="Zonă focală desenată",
+        control=False,
         style_function=lambda _: {
             "color": "#16a34a",
             "weight": 3,
@@ -67,7 +71,7 @@ def add_tile_layers(folium_map: folium.Map, layers: list[dict[str, Any]]) -> Non
             attr="Google Earth Engine",
             name=layer["name"],
             overlay=True,
-            control=True,
+            control=False,
             show=bool(layer.get("shown")),
         ).add_to(folium_map)
 
@@ -78,6 +82,7 @@ def add_buffer_layer(folium_map: folium.Map, geometry: dict[str, Any] | None) ->
     folium.GeoJson(
         {"type": "Feature", "properties": {}, "geometry": geometry},
         name="Buffer de avertizare",
+        control=False,
         style_function=lambda _: {
             "color": "#f59e0b",
             "weight": 2,
@@ -92,48 +97,57 @@ def add_osm_layers(
     folium_map: folium.Map,
     layers: dict[str, dict[str, Any]],
 ) -> None:
-    styles = {
-        "osm_buildings": {"color": "#dc2626", "weight": 1, "fillOpacity": 0.35},
-        "osm_roads": {"color": "#f97316", "weight": 4},
-        "osm_railways": {"color": "#7c3aed", "weight": 3},
-        "osm_bridges": {"color": "#0ea5e9", "weight": 4},
-        "osm_critical": {"color": "#dc2626", "weight": 2},
-    }
     for layer_id, collection in layers.items():
         features = collection.get("features", [])
         if not features:
             continue
-        folium.GeoJson(
-            collection,
+        group = folium.FeatureGroup(
             name=collection.get("display_name", layer_id),
-            style_function=lambda feature, layer_style=styles.get(layer_id, {}): {
-                **layer_style,
-                "opacity": 1
-                if feature.get("properties", {}).get("status") == "Intersectat direct"
-                else 0.75,
-            },
-            tooltip=_osm_tooltip(features),
+            overlay=True,
+            control=False,
             show=True,
         ).add_to(folium_map)
-        if layer_id == "osm_critical":
-            for feature in collection.get("features", []):
-                if feature.get("geometry", {}).get("type") != "Point":
-                    continue
-                longitude, latitude = feature["geometry"]["coordinates"]
+        vector_features = []
+        if layer_id != "osm_critical":
+            for feature in features:
+                rendered = dict(feature)
+                if layer_id in {"osm_roads", "osm_railways", "osm_bridges"}:
+                    rendered["geometry"] = (
+                        feature.get("clipped_geometry") or feature.get("geometry")
+                    )
+                vector_features.append(rendered)
+        if vector_features:
+            folium.GeoJson(
+                {"type": "FeatureCollection", "features": vector_features},
+                control=False,
+                style_function=lambda feature, current=layer_id: _osm_style(
+                    current,
+                    feature.get("properties", {}).get("status", ""),
+                ),
+                tooltip=_osm_tooltip(vector_features),
+            ).add_to(group)
+
+        if layer_id in {"osm_critical", "osm_bridges"}:
+            cluster = MarkerCluster(
+                name=f"{layer_id}-markers",
+                control=False,
+                disableClusteringAtZoom=15,
+            ).add_to(group)
+            for feature in features:
+                point = shape(feature.get("geometry") or {}).representative_point()
                 properties = feature.get("properties", {})
-                symbol = escape(str(properties.get("symbol", "●")))
-                name = escape(str(properties.get("name") or "Obiectiv critic"))
+                name = escape(str(properties.get("name") or _feature_label(layer_id)))
                 status = escape(str(properties.get("status") or "Necunoscut"))
                 distance = escape(str(properties.get("distance_to_water_m", "indisponibil")))
                 folium.Marker(
-                    [latitude, longitude],
+                    [point.y, point.x],
                     icon=folium.DivIcon(
-                        html=(
-                            '<div style="width:26px;height:26px;border-radius:50%;'
-                            'background:#fff;border:2px solid #dc2626;color:#991b1b;'
-                            'display:flex;align-items:center;justify-content:center;'
-                            f'font-weight:700">{symbol}</div>'
-                        )
+                        html=_svg_icon(
+                            _icon_kind(properties, layer_id),
+                            _status_color(properties.get("status", "")),
+                        ),
+                        icon_size=(30, 30),
+                        icon_anchor=(15, 15),
                     ),
                     tooltip=f"{name} · {status}",
                     popup=folium.Popup(
@@ -142,7 +156,71 @@ def add_osm_layers(
                         "Sursă: OpenStreetMap",
                         max_width=320,
                     ),
-                ).add_to(folium_map)
+                ).add_to(cluster)
+
+
+def _status_color(status: str) -> str:
+    if status == "Intersectat direct":
+        return "#dc2626"
+    if "buffer" in status.lower():
+        return "#f97316"
+    return "#64748b"
+
+
+def _osm_style(layer_id: str, status: str) -> dict[str, Any]:
+    color = _status_color(status)
+    weights = {
+        "osm_buildings": 1.5,
+        "osm_roads": 4,
+        "osm_railways": 3,
+        "osm_bridges": 5,
+    }
+    return {
+        "color": color,
+        "weight": weights.get(layer_id, 2),
+        "opacity": 0.95,
+        "fillColor": color,
+        "fillOpacity": 0.3 if layer_id == "osm_buildings" else 0,
+    }
+
+
+def _icon_kind(properties: dict[str, Any], layer_id: str) -> str:
+    if layer_id == "osm_bridges":
+        return "pod"
+    tags = properties.get("tags") if isinstance(properties.get("tags"), dict) else properties
+    amenity = tags.get("amenity") or tags.get("healthcare")
+    names = {
+        "hospital": "H",
+        "clinic": "C",
+        "pharmacy": "+",
+        "fire_station": "P",
+        "police": "Pol",
+        "school": "S",
+        "kindergarten": "S",
+        "fuel": "B",
+    }
+    if amenity in names:
+        return names[amenity]
+    if tags.get("power"):
+        return "E"
+    if tags.get("railway") == "station":
+        return "G"
+    return "i"
+
+
+def _svg_icon(label: str, color: str) -> str:
+    safe_label = escape(label)
+    return (
+        '<div class="impact-osm-icon">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">'
+        f'<circle cx="15" cy="15" r="12" fill="white" stroke="{color}" stroke-width="3"/>'
+        f'<text x="15" y="19" text-anchor="middle" font-size="10" font-weight="700" fill="{color}">'
+        f"{safe_label}</text></svg></div>"
+    )
+
+
+def _feature_label(layer_id: str) -> str:
+    return "Pod" if layer_id == "osm_bridges" else "Obiectiv critic"
 
 
 def _osm_tooltip(features: list[dict[str, Any]]) -> folium.GeoJsonTooltip | None:

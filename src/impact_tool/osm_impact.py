@@ -11,6 +11,7 @@ from shapely.ops import transform
 STATUS_DIRECT = "Intersectat direct"
 STATUS_BUFFER = "În buffer de avertizare"
 STATUS_UNEXPOSED = "Neexpus"
+STATUS_REFERENCE = "Referință"
 
 SYMBOLS = {
     "hospital": "✚",
@@ -28,25 +29,49 @@ SYMBOLS = {
 }
 
 
+def _transformers() -> tuple[Transformer, Transformer]:
+    return (
+        Transformer.from_crs("EPSG:4326", "EPSG:3035", always_xy=True),
+        Transformer.from_crs("EPSG:3035", "EPSG:4326", always_xy=True),
+    )
+
+
+def buffered_geometry(
+    geometry: dict[str, Any],
+    buffer_meters: int,
+) -> tuple[dict[str, Any], list[float]]:
+    forward, reverse = _transformers()
+    projected = transform(forward.transform, shape(geometry))
+    expanded = transform(reverse.transform, projected.buffer(buffer_meters))
+    west, south, east, north = expanded.bounds
+    return mapping(expanded), [west, south, east, north]
+
+
 def classify_osm_impact(
     layers: dict[str, dict[str, Any]],
     water_geometry: dict[str, Any],
     buffer_meters: int,
+    active_geometry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not 1 <= buffer_meters <= 1000:
         raise ValueError("Bufferul trebuie să fie între 1 și 1000 m.")
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3035", always_xy=True)
-    reverse = Transformer.from_crs("EPSG:3035", "EPSG:4326", always_xy=True)
-    project = lambda geom: transform(transformer.transform, geom)
-    unproject = lambda geom: transform(reverse.transform, geom)
+    forward, reverse = _transformers()
+    project = lambda geometry: transform(forward.transform, geometry)
+    unproject = lambda geometry: transform(reverse.transform, geometry)
     water = project(shape(water_geometry))
     warning_area = water.buffer(buffer_meters)
+    reference_area = water.buffer(500)
+    buffer_only = warning_area.difference(water)
+    active_area = project(shape(active_geometry)) if active_geometry else None
     classified: dict[str, dict[str, Any]] = {}
     status_counts: Counter[str] = Counter()
     metrics = {
         "buildings_direct": 0,
         "buildings_buffer": 0,
         "buildings_area_m2": 0.0,
+        "buildings_overlap_m2": 0.0,
+        "buildings_complete": 0,
+        "buildings_partial": 0,
         "roads_direct_km": 0.0,
         "roads_buffer_km": 0.0,
         "railways_direct_km": 0.0,
@@ -66,15 +91,42 @@ def classify_osm_impact(
                 status = STATUS_DIRECT
             elif projected.intersects(warning_area):
                 status = STATUS_BUFFER
+            elif layer_id == "osm_buildings" and projected.intersects(reference_area):
+                status = STATUS_REFERENCE
             else:
                 status = STATUS_UNEXPOSED
             properties = dict(feature.get("properties") or {})
             properties["status"] = status
             properties["distance_to_water_m"] = round(projected.distance(water), 1)
             properties["symbol"] = symbol_for_feature(properties, layer_id)
-            features.append({**feature, "properties": properties})
+            properties["outside_active_area"] = bool(
+                active_area is not None and not projected.intersects(active_area)
+            )
+            properties["infrastructure_level"] = infrastructure_level(
+                properties,
+                layer_id,
+            )
+            clipped = projected.intersection(warning_area)
+            features.append(
+                {
+                    **feature,
+                    "properties": properties,
+                    "original_geometry": feature["geometry"],
+                    "clipped_geometry": (
+                        mapping(unproject(clipped)) if not clipped.is_empty else None
+                    ),
+                }
+            )
             status_counts[status] += 1
-            _accumulate_metrics(metrics, layer_id, projected, water, status, properties)
+            _accumulate_metrics(
+                metrics,
+                layer_id,
+                projected,
+                water,
+                buffer_only,
+                status,
+                properties,
+            )
         classified[layer_id] = {**collection, "features": features}
     return {
         "layers": classified,
@@ -120,9 +172,30 @@ def visible_impact_layers(
             feature
             for feature in collection.get("features", [])
             if feature.get("properties", {}).get("status") != STATUS_UNEXPOSED
+            and (
+                filters.get("reference_buildings", True)
+                or feature.get("properties", {}).get("status") != STATUS_REFERENCE
+            )
         ]
         result[layer_id] = {**collection, "features": features}
     return result
+
+
+def infrastructure_level(properties: dict[str, Any], layer_id: str) -> str:
+    tags = properties.get("tags") if isinstance(properties.get("tags"), dict) else properties
+    if (
+        tags.get("amenity") in {"hospital", "clinic", "fire_station", "police"}
+        or tags.get("healthcare")
+        or tags.get("power")
+    ):
+        return "esențial"
+    if (
+        layer_id in {"osm_bridges", "osm_railways"}
+        or tags.get("highway") in {"motorway", "trunk", "primary", "secondary"}
+        or tags.get("amenity") in {"pharmacy", "school", "kindergarten", "fuel"}
+    ):
+        return "important"
+    return "context tehnic"
 
 
 def _accumulate_metrics(
@@ -130,6 +203,7 @@ def _accumulate_metrics(
     layer_id: str,
     geometry: Any,
     water: Any,
+    buffer_only: Any,
     status: str,
     properties: dict[str, Any],
 ) -> None:
@@ -138,25 +212,27 @@ def _accumulate_metrics(
         return
     if layer_id == "osm_buildings":
         metrics[f"buildings_{suffix}"] += 1
+        metrics["buildings_area_m2"] += round(geometry.area, 1)
         if status == STATUS_DIRECT:
-            metrics["buildings_area_m2"] += round(geometry.area, 1)
-            properties["intersection_type"] = (
-                "completă" if geometry.within(water) else "parțială"
+            overlap = geometry.intersection(water).area
+            complete = geometry.within(water)
+            metrics["buildings_overlap_m2"] += round(overlap, 1)
+            metrics["buildings_complete" if complete else "buildings_partial"] += 1
+            properties["intersection_type"] = "completă" if complete else "parțială"
+    elif layer_id in {"osm_roads", "osm_railways"}:
+        prefix = "roads" if layer_id == "osm_roads" else "railways"
+        direct_km = geometry.intersection(water).length / 1000
+        buffer_km = geometry.intersection(buffer_only).length / 1000
+        metrics[f"{prefix}_direct_km"] += round(direct_km, 3)
+        metrics[f"{prefix}_buffer_km"] += round(buffer_km, 3)
+        if layer_id == "osm_roads":
+            road_class = properties.get("highway") or "necunoscut"
+            class_metrics = metrics["road_classes"].setdefault(
+                road_class,
+                {"direct_km": 0.0, "buffer_km": 0.0},
             )
-    elif layer_id == "osm_roads":
-        length_km = round(geometry.length / 1000, 3)
-        metrics[f"roads_{suffix}_km"] += length_km
-        road_class = properties.get("highway") or "necunoscut"
-        class_metrics = metrics["road_classes"].setdefault(
-            road_class,
-            {"direct_km": 0.0, "buffer_km": 0.0},
-        )
-        class_metrics[f"{suffix}_km"] = round(
-            class_metrics[f"{suffix}_km"] + length_km,
-            3,
-        )
-    elif layer_id == "osm_railways":
-        metrics[f"railways_{suffix}_km"] += round(geometry.length / 1000, 3)
+            class_metrics["direct_km"] = round(class_metrics["direct_km"] + direct_km, 3)
+            class_metrics["buffer_km"] = round(class_metrics["buffer_km"] + buffer_km, 3)
     elif layer_id == "osm_bridges":
         metrics[f"bridges_{suffix}"] += 1
     elif layer_id == "osm_critical":

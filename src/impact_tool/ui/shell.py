@@ -109,6 +109,10 @@ def render_app(st_module: Any | None = None) -> None:
         st.warning(warning)
 
     map_column, layers_column = st.columns([4.7, 1.3], gap="small")
+    with layers_column:
+        st.markdown('<div class="layers-title">Layere</div>', unsafe_allow_html=True)
+        _render_layer_controls(st, state)
+
     with map_column:
         from streamlit_folium import st_folium
 
@@ -118,9 +122,13 @@ def render_app(st_module: Any | None = None) -> None:
                 state.county_name,
                 aoi_geometry=state.aoi_geometry,
                 preview_tiles=state.preview_tiles if state.swipe_enabled else {},
+                preview_scene_tile=(
+                    state.preview_scene_tile if not state.analysis_complete else ""
+                ),
                 analysis_layers=_analysis_layers(state),
                 buffer_geometry=_selected_buffer_geometry(state),
                 osm_layers=_visible_osm_layers(state),
+                focus_location=state.map_focus,
             ),
             use_container_width=True,
             height=640,
@@ -136,10 +144,6 @@ def render_app(st_module: Any | None = None) -> None:
         drawing = geometry_from_drawing((map_data or {}).get("last_active_drawing"))
         if drawing and set_aoi(state, drawing):
             st.rerun()
-
-    with layers_column:
-        st.markdown('<div class="layers-title">Layere</div>', unsafe_allow_html=True)
-        _render_layer_controls(st, state)
 
     render_result_tabs(st, state)
 
@@ -168,10 +172,24 @@ def _visible_osm_layers(state: Any) -> dict[str, dict[str, Any]]:
         state.osm_filters,
         state.critical_mode,
     )
-    return {
+    selected = {
         layer_id: layer
         for layer_id, layer in visible.items()
         if layer_id in state.active_layers
+    }
+    if not state.presentation_mode:
+        return selected
+    return {
+        layer_id: {
+            **layer,
+            "features": [
+                feature
+                for feature in layer.get("features", [])
+                if feature.get("properties", {}).get("infrastructure_level")
+                in {"esențial", "important"}
+            ],
+        }
+        for layer_id, layer in selected.items()
     }
 
 

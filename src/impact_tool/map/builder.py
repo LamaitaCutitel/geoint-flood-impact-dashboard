@@ -21,15 +21,44 @@ from src.impact_tool.map.tools import NavigationControl
 ROMANIA_CENTER = [45.9432, 24.9668]
 
 
+def _geometry_bounds(geometry: dict[str, Any] | None) -> list[list[float]] | None:
+    if not geometry:
+        return None
+    points: list[list[float]] = []
+
+    def collect(value: Any) -> None:
+        if (
+            isinstance(value, list)
+            and len(value) >= 2
+            and all(isinstance(item, (int, float)) for item in value[:2])
+        ):
+            points.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(geometry.get("coordinates", []))
+    if not points:
+        return None
+    longitudes = [point[0] for point in points]
+    latitudes = [point[1] for point in points]
+    return [
+        [min(latitudes), min(longitudes)],
+        [max(latitudes), max(longitudes)],
+    ]
+
+
 def build_shell_map(
     counties_geojson: dict[str, Any] | None,
     selected_county: str,
     aoi_geometry: dict[str, Any] | None = None,
     draw_enabled: bool = True,
     preview_tiles: dict[str, str] | None = None,
+    preview_scene_tile: str | None = None,
     analysis_layers: list[dict[str, Any]] | None = None,
     buffer_geometry: dict[str, Any] | None = None,
     osm_layers: dict[str, dict[str, Any]] | None = None,
+    focus_location: list[float] | None = None,
 ) -> folium.Map:
     selected_feature = (
         selected_county_feature(counties_geojson, selected_county)
@@ -42,12 +71,39 @@ def build_shell_map(
     folium_map = folium.Map(
         location=center,
         zoom_start=8 if selected_feature else 6,
-        tiles="CartoDB dark_matter",
+        tiles=None,
         control_scale=True,
         zoom_control=True,
     )
+    folium.TileLayer(
+        tiles="CartoDB positron",
+        name="OSM Light / CartoDB Positron",
+        overlay=False,
+        control=True,
+        show=True,
+    ).add_to(folium_map)
+    folium.TileLayer(
+        tiles=(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        ),
+        attr="Esri, Maxar, Earthstar Geographics",
+        name="Satelit / Esri World Imagery",
+        overlay=False,
+        control=True,
+        show=False,
+    ).add_to(folium_map)
     add_county_outlines(folium_map, counties_geojson, selected_county)
     add_aoi_layer(folium_map, aoi_geometry)
+    if preview_scene_tile:
+        folium.TileLayer(
+            tiles=preview_scene_tile,
+            attr="Google Earth Engine",
+            name="Previzualizare scenă Sentinel-1",
+            overlay=True,
+            control=False,
+            show=True,
+        ).add_to(folium_map)
     add_tile_layers(folium_map, analysis_layers or [])
     add_buffer_layer(folium_map, buffer_geometry)
     add_osm_layers(folium_map, osm_layers or {})
@@ -86,7 +142,8 @@ def build_shell_map(
             [[selected_bbox[1], selected_bbox[0]], [selected_bbox[3], selected_bbox[2]]]
         )
         NavigationControl(
-            [[selected_bbox[1], selected_bbox[0]], [selected_bbox[3], selected_bbox[2]]]
+            [[selected_bbox[1], selected_bbox[0]], [selected_bbox[3], selected_bbox[2]]],
+            _geometry_bounds(aoi_geometry),
         ).add_to(folium_map)
     MeasureControl(
         position="topleft",
@@ -108,6 +165,11 @@ def build_shell_map(
     ).add_to(folium_map)
     if preview_tiles and preview_tiles.get("before") and preview_tiles.get("after"):
         SarSwipeControl(preview_tiles["before"], preview_tiles["after"]).add_to(folium_map)
-    if analysis_layers or osm_layers or buffer_geometry:
-        folium.LayerControl(collapsed=True, position="topright").add_to(folium_map)
+    if focus_location and len(focus_location) == 2:
+        latitude, longitude = focus_location
+        folium_map.fit_bounds(
+            [[latitude, longitude], [latitude, longitude]],
+            max_zoom=17,
+        )
+    folium.LayerControl(collapsed=True, position="topright").add_to(folium_map)
     return folium_map

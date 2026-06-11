@@ -53,6 +53,8 @@ class ImpactToolState:
     scene_errors: list[str] = field(default_factory=list)
     scene_warnings: list[str] = field(default_factory=list)
     scene_query: dict = field(default_factory=dict)
+    preview_scene_id: str = ""
+    preview_scene_tile: str = ""
     scenes_confirmed: bool = False
     comparison_ready: bool = False
     preview_mode: str = "Radar brut în tonuri de gri"
@@ -86,9 +88,14 @@ class ImpactToolState:
             "railways": True,
             "bridges": True,
             "critical": True,
+            "reference_buildings": True,
         }
     )
     critical_mode: bool = False
+    presentation_mode: bool = False
+    map_focus: list[float] = field(default_factory=list)
+    preset_name: str = ""
+    event_date: str = ""
     reusable_cache: dict = field(default_factory=dict)
     cache_events: list[str] = field(default_factory=list)
     analysis_hash: str = ""

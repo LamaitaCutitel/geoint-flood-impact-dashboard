@@ -18,6 +18,39 @@ def dynamic_world_mode(ee: Any, aoi: Any, start_date: str, end_date: str) -> Any
     )
 
 
+def nearest_dynamic_world_image(
+    ee: Any,
+    aoi: Any,
+    target_date: str,
+    window_days: int = 15,
+) -> tuple[Any, str]:
+    target = ee.Date(target_date)
+    collection = (
+        ee.ImageCollection(COLLECTIONS.dynamic_world)
+        .filterBounds(aoi)
+        .filterDate(target.advance(-window_days, "day"), target.advance(window_days + 1, "day"))
+        .select("label")
+        .map(
+            lambda image: image.set(
+                "distance_to_target",
+                image.date().difference(target, "day").abs(),
+            )
+        )
+        .sort("distance_to_target")
+    )
+    count = int(collection.size().getInfo())
+    if count == 0:
+        raise RuntimeError(
+            f"Dynamic World nu are observații în intervalul de ±{window_days} zile "
+            f"față de {target_date}."
+        )
+    image = ee.Image(collection.first()).clip(aoi)
+    acquisition_date = (
+        ee.Date(image.get("system:time_start")).format("YYYY-MM-dd").getInfo()
+    )
+    return image, acquisition_date
+
+
 def dynamic_world_change_map(ee: Any, before: Any, after: Any, aoi: Any) -> Any:
     water_class = 0
     no_change = before.eq(after)

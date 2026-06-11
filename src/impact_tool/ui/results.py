@@ -8,7 +8,6 @@ from src.impact_tool.state import reset_analysis_results, reset_scene_selection
 
 def render_result_tabs(st: Any, state: ImpactToolState) -> None:
     tabs = st.tabs(list(TAB_NAMES))
-
     with tabs[0]:
         st.info("Harta principală rămâne spațiul central de lucru.")
         _render_map_tools(st, state)
@@ -60,14 +59,21 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
     if not state.osm_status:
         st.caption("Datele OSM sunt încărcate automat în timpul analizei.")
         return
+    state.presentation_mode = st.toggle(
+        "Mod prezentare",
+        value=state.presentation_mode,
+        help="Păstrează pe hartă infrastructura esențială și importantă.",
+        key="osm_presentation_mode",
+    )
     st.markdown("#### Filtre OSM")
-    columns = st.columns(5)
+    columns = st.columns(6)
     labels = {
         "buildings": "Clădiri",
         "roads": "Drumuri",
         "railways": "Căi ferate",
         "bridges": "Poduri",
         "critical": "Obiective critice",
+        "reference_buildings": "Clădiri de referință",
     }
     for column, (key, label) in zip(columns, labels.items()):
         state.osm_filters[key] = column.checkbox(
@@ -82,26 +88,90 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
     )
     for category, status in state.osm_status.items():
         if status.get("ok"):
+            st.caption(
+                f"Sursa: {status.get('source', 'necunoscută')} | "
+                f"data cache: {status.get('cache_date', 'indisponibilă')} | "
+                f"completitudine: {status.get('completeness', 'necunoscută')}"
+            )
             st.success(
                 f"{category}: {status.get('count', 0)} obiecte · {status.get('source')}"
             )
+            for warning in status.get("warnings", []):
+                st.warning(warning)
         else:
             st.warning(f"{category}: {status.get('error', 'eroare necunoscută')}")
-            if st.button(
-                f"Reîncearcă {category}",
-                key=f"retry_osm_{category}",
-            ):
+            if st.button(f"Reîncearcă {category}", key=f"retry_osm_{category}"):
                 state.osm_retry_category = category
                 state.osm_load_requested = True
                 st.rerun()
     impact = state.analysis_results.get("osm_impact")
     if impact:
-        st.json(impact.get("metrics", {}), expanded=False)
+        _render_priority_table(st, state, impact)
+        with st.expander("Mod QA", expanded=False):
+            st.caption("Informații tehnice pentru verificarea implementării.")
+            st.json(
+                {
+                    "counts": impact.get("metrics", {}).get("status_counts", {}),
+                    "cache": state.osm_status,
+                    "events": state.cache_events[-10:],
+                    "relations_omise": sum(
+                        len(status.get("warnings", []))
+                        for status in state.osm_status.values()
+                    ),
+                },
+                expanded=False,
+            )
     else:
         st.warning(
             "Impactul geometric necesită geometria vectorială a apei noi SAR; "
             "datele OSM brute rămân disponibile."
         )
+
+
+def _render_priority_table(st: Any, state: ImpactToolState, impact: dict[str, Any]) -> None:
+    rows = []
+    category_names = {
+        "osm_buildings": "Clădire",
+        "osm_roads": "Drum",
+        "osm_railways": "Cale ferată",
+        "osm_bridges": "Pod",
+        "osm_critical": "Obiectiv critic",
+    }
+    for layer_id, layer in impact.get("layers", {}).items():
+        for feature in layer.get("features", []):
+            properties = feature.get("properties", {})
+            if properties.get("status") == "Neexpus":
+                continue
+            point = _feature_center(feature.get("geometry") or {})
+            rows.append(
+                {
+                    "name": properties.get("name") or "Fără nume",
+                    "category": category_names.get(layer_id, layer_id),
+                    "status": properties.get("status", "Necunoscut"),
+                    "distance": properties.get("distance_to_water_m", 0),
+                    "level": properties.get("infrastructure_level", "context tehnic"),
+                    "coordinates": point,
+                }
+            )
+    priority = {"esențial": 0, "important": 1, "context tehnic": 2}
+    rows.sort(key=lambda row: (priority.get(row["level"], 3), row["distance"]))
+    st.markdown("#### Elemente prioritare")
+    for index, row in enumerate(rows[:25]):
+        columns = st.columns([2.2, 1.4, 1.5, 1.1, 0.7])
+        columns[0].write(row["name"])
+        columns[1].write(row["category"])
+        columns[2].write(row["status"])
+        columns[3].write(f'{row["distance"]} m')
+        if columns[4].button("Zoom", key=f"osm_zoom_{index}"):
+            state.map_focus = row["coordinates"]
+            st.rerun()
+
+
+def _feature_center(geometry: dict[str, Any]) -> list[float]:
+    from shapely.geometry import shape
+
+    point = shape(geometry).representative_point()
+    return [point.y, point.x]
 
 
 def _render_map_tools(st: Any, state: ImpactToolState) -> None:

@@ -7,9 +7,9 @@ from src.impact_tool.dynamic_world import (
 )
 
 
-def test_scene_period_uses_exact_acquisition_day() -> None:
+def test_scene_period_uses_robust_window_around_acquisition() -> None:
     period = scene_day_period({"acquisition_time": "2024-09-14T16:27:00+00:00"})
-    assert period == ("2024-09-14", "2024-09-15")
+    assert period == ("2024-08-30", "2024-09-30")
 
 
 def test_all_relevant_transitions_are_declared() -> None:

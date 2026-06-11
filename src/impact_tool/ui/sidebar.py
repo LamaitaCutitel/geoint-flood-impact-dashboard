@@ -15,12 +15,16 @@ from src.gee.sentinel1_collection import build_aoi_from_geometry
 from src.gee.sentinel1_scene_explorer import search_sentinel1_scenes_result
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import BUFFER_MAX_METERS, BUFFER_MIN_METERS, ImpactToolState
+from src.impact_tool.presets import GALATI_PRESET_NAME, apply_galati_preset
 from src.impact_tool.scenes import (
     confirm_scene_pair,
+    hydrate_scene_thumbnails,
+    preview_tile_for_scene,
     preview_tiles_for_pair,
     scene_label,
     search_scenes,
     select_scene_pair,
+    timeline_entries,
 )
 from src.impact_tool.state import (
     apply_scene_pair,
@@ -46,6 +50,25 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
             )
 
         st.divider()
+        galati_feature = (
+            selected_county_feature(boundary_result.geojson, "Galati")
+            if boundary_result.geojson
+            else None
+        )
+        if st.button(
+            GALATI_PRESET_NAME,
+            use_container_width=True,
+            key="apply_galati_preset",
+        ):
+            apply_galati_preset(
+                state,
+                st.session_state,
+                county_geometry(galati_feature),
+                feature_bbox(galati_feature),
+            )
+            st.rerun()
+        if state.preset_name == GALATI_PRESET_NAME:
+            st.success("Cache Galați pregătit pentru rulare rapidă")
         selected_index = counties.index(state.county_name) if state.county_name in counties else 0
         selected_county = st.selectbox(
             "Județ",
@@ -188,19 +211,32 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
 def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
     st.markdown("#### Scene Sentinel-1")
     today = date.today()
+    preset_suffix = "_preset" if state.preset_name == GALATI_PRESET_NAME else ""
+    start_key = f"impact_scene_start{preset_suffix}"
+    start_value = st.session_state.pop(
+        start_key,
+        today - timedelta(days=60),
+    )
     start_date = st.date_input(
         "Început interval",
-        value=today - timedelta(days=60),
-        key="impact_scene_start",
+        value=start_value,
+        key=start_key,
     )
+    end_key = f"impact_scene_end{preset_suffix}"
+    end_value = st.session_state.pop(end_key, today)
     end_date = st.date_input(
         "Sfârșit interval",
-        value=today,
-        key="impact_scene_end",
+        value=end_value,
+        key=end_key,
     )
+    polarization_options = ["VH", "VV"]
+    polarization_key = f"impact_scene_polarization{preset_suffix}"
+    polarization_value = st.session_state.pop(polarization_key, "VH")
     polarization = st.selectbox(
         "Polarizare",
-        ["VH", "VV"],
+        polarization_options,
+        index=polarization_options.index(polarization_value),
+        key=polarization_key,
         help="Polarizarea radar utilizată pentru ambele scene.",
     )
     orbit_pass = st.selectbox(
@@ -224,7 +260,13 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
                 searcher=search_sentinel1_scenes_result,
                 search_args=(gee.ee, aoi),
             )
-            state.scene_candidates = result.scenes
+            state.scene_candidates, thumbnail_hits = hydrate_scene_thumbnails(
+                cache=PersistentCache(),
+                ee=gee.ee,
+                aoi=aoi,
+                aoi_hash=state.active_area_hash,
+                scenes=result.scenes,
+            )
             state.scene_warnings = result.warnings
             state.scene_errors = result.errors
             state.scene_query = {
@@ -237,6 +279,10 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
                 "Scene Sentinel-1 disponibile în cache."
                 if result.from_cache
                 else "Scene Sentinel-1 încărcate din Google Earth Engine."
+            )
+            state.cache_events.append(
+                f"Thumbnail-uri Sentinel-1 din cache: {thumbnail_hits}/"
+                f"{len(state.scene_candidates)}."
             )
 
     for error in state.scene_errors:
@@ -256,18 +302,28 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         )
         return
 
+    _render_scene_timeline(st, state.scene_candidates)
+    _render_scene_gallery(st, state)
+
     scene_ids = [scene["ee_id"] for scene in state.scene_candidates]
     labels = {scene["ee_id"]: scene_label(scene) for scene in state.scene_candidates}
     before_id = st.selectbox(
         "Imagine de referință (BEFORE)",
         scene_ids,
+        index=_selected_scene_index(scene_ids, state.before_scene, 0),
         format_func=lambda scene_id: labels[scene_id],
+        key="impact_before_scene_select",
     )
     after_id = st.selectbox(
         "Imagine după eveniment (AFTER)",
         scene_ids,
-        index=max(0, len(scene_ids) - 1),
+        index=_selected_scene_index(
+            scene_ids,
+            state.after_scene,
+            max(0, len(scene_ids) - 1),
+        ),
         format_func=lambda scene_id: labels[scene_id],
+        key="impact_after_scene_select",
     )
     before, after = select_scene_pair(state.scene_candidates, before_id, after_id)
     validation = confirm_scene_pair(before, after)
@@ -288,7 +344,85 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         if confirmation["confirmed"]:
             state.swipe_enabled = False
             state.preview_tiles.clear()
+            state.preview_scene_id = ""
+            state.preview_scene_tile = ""
             st.rerun()
+
+
+def _render_scene_timeline(st: Any, scenes: list[dict[str, Any]]) -> None:
+    entries = timeline_entries(scenes)
+    labels = " → ".join(
+        f"{entry['date']} ({entry['orbit_pass']})"
+        for entry in entries
+    )
+    st.caption(f"Timeline: {labels}")
+
+
+def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
+    st.markdown("##### Galerie scene")
+    for row_start in range(0, len(state.scene_candidates), 2):
+        columns = st.columns(2)
+        for column, scene in zip(
+            columns,
+            state.scene_candidates[row_start : row_start + 2],
+        ):
+            with column:
+                thumbnail = scene.get("thumbnail_url")
+                if thumbnail:
+                    st.image(thumbnail, use_container_width=True)
+                else:
+                    st.caption("Thumbnail indisponibil")
+                st.caption(
+                    f"{str(scene.get('acquisition_time', ''))[:16].replace('T', ' ')}\n\n"
+                    f"{scene.get('orbit_pass', '?')} · orbita "
+                    f"{scene.get('relative_orbit', '?')} · "
+                    f"{scene.get('polarization', '?')} · "
+                    f"{float(scene.get('coverage_percent') or 0):.1f}% AOI"
+                )
+                scene_id = str(scene.get("ee_id"))
+                if st.button(
+                    "Previzualizează",
+                    key=f"preview-scene-{scene_id}",
+                    use_container_width=True,
+                ):
+                    _preview_scene(state, scene)
+                    st.rerun()
+                before_col, after_col = st.columns(2)
+                if before_col.button(
+                    "Alege BEFORE",
+                    key=f"choose-before-{scene_id}",
+                    use_container_width=True,
+                ):
+                    state.before_scene = scene
+                    st.session_state["impact_before_scene_select"] = scene_id
+                    st.rerun()
+                if after_col.button(
+                    "Alege AFTER",
+                    key=f"choose-after-{scene_id}",
+                    use_container_width=True,
+                ):
+                    state.after_scene = scene
+                    st.session_state["impact_after_scene_select"] = scene_id
+                    st.rerun()
+
+
+def _preview_scene(state: ImpactToolState, scene: dict[str, Any]) -> None:
+    gee = initialize_earth_engine()
+    if not gee.available or gee.ee is None:
+        state.scene_errors = [gee.message]
+        return
+    aoi = build_aoi_from_geometry(gee.ee, state.active_geometry, state.active_area_bbox)
+    state.preview_scene_id = str(scene.get("ee_id"))
+    state.preview_scene_tile = preview_tile_for_scene(gee.ee, aoi, scene)
+
+
+def _selected_scene_index(
+    scene_ids: list[str],
+    selected: dict[str, Any] | None,
+    fallback: int,
+) -> int:
+    selected_id = (selected or {}).get("ee_id")
+    return scene_ids.index(selected_id) if selected_id in scene_ids else fallback
 
 
 def _refresh_preview_tiles(state: ImpactToolState) -> None:

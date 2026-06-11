@@ -31,6 +31,8 @@ def reset_scene_selection(state: ImpactToolState) -> None:
     state.comparison_ready = False
     state.swipe_enabled = False
     state.preview_tiles.clear()
+    state.preview_scene_id = ""
+    state.preview_scene_tile = ""
     state.cache_events.append("Selecția scenelor a fost resetată.")
 
 

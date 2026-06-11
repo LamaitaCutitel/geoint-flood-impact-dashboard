@@ -5,7 +5,7 @@ from typing import Any
 
 from src.gee.dynamic_world import (
     dynamic_world_change_map,
-    dynamic_world_mode,
+    nearest_dynamic_world_image,
     dynamic_world_water_change_masks,
     mask_area_km2,
 )
@@ -24,9 +24,12 @@ TRANSITION_CLASSES = {
 }
 
 
-def scene_day_period(scene: dict[str, Any]) -> tuple[str, str]:
+def scene_day_period(scene: dict[str, Any], window_days: int = 15) -> tuple[str, str]:
     acquired = datetime.fromisoformat(str(scene["acquisition_time"]).replace("Z", "+00:00"))
-    return acquired.date().isoformat(), (acquired.date() + timedelta(days=1)).isoformat()
+    return (
+        (acquired.date() - timedelta(days=window_days)).isoformat(),
+        (acquired.date() + timedelta(days=window_days + 1)).isoformat(),
+    )
 
 
 def run_dynamic_world_analysis(
@@ -37,10 +40,12 @@ def run_dynamic_world_analysis(
     sar_new_water: Any,
     scale_meters: int = 10,
 ) -> dict[str, Any]:
+    before_target = str(before_scene["acquisition_time"])[:10]
+    after_target = str(after_scene["acquisition_time"])[:10]
     before_period = scene_day_period(before_scene)
     after_period = scene_day_period(after_scene)
-    before = dynamic_world_mode(ee, aoi, *before_period)
-    after = dynamic_world_mode(ee, aoi, *after_period)
+    before, before_date = nearest_dynamic_world_image(ee, aoi, before_target)
+    after, after_date = nearest_dynamic_world_image(ee, aoi, after_target)
     change = dynamic_world_change_map(ee, before, after, aoi)
     water_masks = dynamic_world_water_change_masks(before, after, sar_new_water, aoi)
     correlation = sar_dynamic_world_overlap(
@@ -88,6 +93,7 @@ def run_dynamic_world_analysis(
             **correlation,
         },
         "periods": {"before": before_period, "after": after_period},
+        "acquisition_dates": {"before": before_date, "after": after_date},
         "metrics": areas,
         "transitions": transitions,
         "tiles": tiles,
@@ -119,7 +125,20 @@ def dynamic_world_layer_definitions(result: dict[str, Any]) -> list[dict[str, An
         ("only_sar", "Apă nouă doar SAR", "#22d3ee", False),
         ("only_dynamic_world", "Apă nouă doar Dynamic World", "#9333ea", False),
     )
+    acquisition_dates = result.get("acquisition_dates", {})
     return [
-        {"id": key, "name": name, "tile_url": tiles.get(key), "color": color, "shown": shown}
+        {
+            "id": key,
+            "name": (
+                f"{name} ({acquisition_dates.get('before')})"
+                if key == "dynamic_world_before" and acquisition_dates.get("before")
+                else f"{name} ({acquisition_dates.get('after')})"
+                if key == "dynamic_world_after" and acquisition_dates.get("after")
+                else name
+            ),
+            "tile_url": tiles.get(key),
+            "color": color,
+            "shown": shown,
+        }
         for key, name, color, shown in specifications
     ]

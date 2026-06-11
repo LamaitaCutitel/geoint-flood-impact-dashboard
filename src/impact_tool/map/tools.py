@@ -24,6 +24,11 @@ class NavigationControl(MacroElement):
             var county = L.DomUtil.create('button', '', box);
             county.type = 'button'; county.title = 'Centrează pe județ'; county.innerHTML = '◎';
             county.onclick = function () { map.fitBounds({{ this.bounds }}); };
+            {% if this.aoi_bounds %}
+            var aoi = L.DomUtil.create('button', '', box);
+            aoi.type = 'button'; aoi.title = 'Centrează pe AOI'; aoi.innerHTML = '□';
+            aoi.onclick = function () { map.fitBounds({{ this.aoi_bounds }}); };
+            {% endif %}
             L.DomEvent.disableClickPropagation(box);
             return box;
           };
@@ -33,7 +38,12 @@ class NavigationControl(MacroElement):
         """
     )
 
-    def __init__(self, bounds: list[list[float]]) -> None:
+    def __init__(
+        self,
+        bounds: list[list[float]],
+        aoi_bounds: list[list[float]] | None = None,
+    ) -> None:
         super().__init__()
         self._name = "NavigationControl"
         self.bounds = bounds
+        self.aoi_bounds = aoi_bounds

@@ -7,6 +7,10 @@ from src.impact_tool.report import (
     generate_cached_report,
     generate_report_pdf,
     report_filename,
+    _metric_label,
+    _osm_dynamic_world_summary,
+    _osm_status_table,
+    _synthetic_map,
 )
 
 
@@ -60,6 +64,66 @@ def test_report_cache(tmp_path) -> None:
     assert not first_hit
     assert second_hit
     assert first == second
+
+
+def test_report_has_readable_labels_and_osm_completeness() -> None:
+    state = _state()
+    state.osm_status = {
+        "buildings": {
+            "count": 12,
+            "source": "cache",
+            "cache_date": "2026-06-11T10:00:00Z",
+            "completeness": "complet",
+        }
+    }
+    assert _metric_label("roads_direct_km") == "Drumuri intersectate direct (km)"
+    assert len(_osm_status_table(state)._cellvalues) == 2
+
+
+def test_synthetic_map_contains_osm_and_works_offline() -> None:
+    state = _state()
+    state.county_geometry = {
+        "type": "Polygon",
+        "coordinates": [[[27, 45], [28, 45], [28, 46], [27, 46], [27, 45]]],
+    }
+    state.analysis_results["sar"]["new_water_geometry"] = {
+        "type": "Polygon",
+        "coordinates": [[[27.4, 45.4], [27.6, 45.4], [27.6, 45.6], [27.4, 45.6], [27.4, 45.4]]],
+    }
+    state.analysis_results["osm_impact"] = {
+        "buffer_geometry": state.analysis_results["sar"]["new_water_geometry"],
+        "metrics": {"roads_direct_km": 1.2},
+        "layers": {
+            "osm_roads": {
+                "features": [
+                    {
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[27.3, 45.5], [27.7, 45.5]],
+                        },
+                        "properties": {"status": "Intersectat direct"},
+                    }
+                ]
+            },
+            "osm_critical": {
+                "features": [
+                    {
+                        "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+                        "properties": {"status": "Intersectat direct"},
+                    }
+                ]
+            },
+        },
+    }
+    image = _synthetic_map(state)
+    assert image.read(8) == b"\x89PNG\r\n\x1a\n"
+    assert len(image.getvalue()) > 10_000
+
+
+def test_osm_dynamic_world_summary_handles_missing_data() -> None:
+    text = _osm_dynamic_world_summary(_state())
+    assert "0 km" in text
+    assert "verificare" in text
 
 
 def test_report_filename_and_mandatory_note() -> None:
