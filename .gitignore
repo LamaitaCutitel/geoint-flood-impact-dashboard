@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 data/output/
 data/cache/
+cache/
 *.tif
 *.tiff
 *.zip
