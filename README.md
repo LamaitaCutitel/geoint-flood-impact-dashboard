@@ -65,14 +65,19 @@ analize rapide.
   alte diferente Dynamic World, Sentinel-2, indici si DEM.
 - Impact operational OSM optional prin Overpass API: cladiri potential afectate,
   drumuri intersectate, obiective critice, cai ferate si poduri.
+- Layerele OSM sunt simbolizate operational in harta: obiectivele critice folosesc
+  iconuri diferentiate, iar fiecare categorie poate fi activata separat.
 - Validare Copernicus EMS prin upload GeoJSON, cu metrici IoU/precision/recall/F1
   atunci cand aria de intersectie SAR x EMS este disponibila.
 - Layer registry central pentru LayerControl, raport si comparatii.
 - Slider vertical before/after SAR water pornit automat dupa analiza finala, plus control in harta `Compara doua layere` pentru perechi alternative fara rerulare GEE.
-- Legenda in harta pentru limite administrative, layere incarcate si perioadele before/after folosite la preluarea datelor.
+- Legenda contextuala minimizabila in harta, alimentata din catalogul central de
+  stiluri, cu sursa, data/perioada, tip de rezultat si explicatia culorilor.
 - Fallback documentat cand layer-ele GEE nu sunt disponibile.
 - Tabel si bar chart pentru terenuri intersectate de extinderea preliminara detectata.
-- Rapoarte mici in `data/output/reports/`.
+- Rapoarte locale in `data/output/reports/`: HTML offline structurat, JSON, CSV,
+  jurnal text/JSON, grafice in `charts/`, asset-uri in `report_assets/` si exporturi
+  GeoJSON OSM cand analiza operationala OSM este disponibila.
 
 ## Capturi Placeholder
 
@@ -134,11 +139,13 @@ Implicit sunt generate layerele esentiale pentru interpretare rapida. Toggle-ul
 `Incarca layere suplimentare` adauga layerele mai grele fara sa schimbe regulile
 analizei principale.
 
-Layerele pot fi activate/dezactivate din LayerControl. Bara verticala before/after
+Layerele pot fi activate/dezactivate din LayerControl, grupate pe categorii tematice
+pentru SAR, Dynamic World, layere optionale, teren si impact operational OSM. Bara verticala before/after
 SAR water este adaugata automat cand cele doua layere SAR water BEFORE/AFTER sunt disponibile.
 Controlul `Compara doua layere` din harta permite alegerea altor doua layere
 comparabile pentru bara verticala glisanta, fara procesare GEE noua. Legenda din
-harta afiseaza sursele si perioadele before/after folosite pentru datele incarcate.
+harta se actualizeaza contextual dupa layerele active si pastreaza detaliile tehnice
+intr-un expander.
 
 ## Limitari
 

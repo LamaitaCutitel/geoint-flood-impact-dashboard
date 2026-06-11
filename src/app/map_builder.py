@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import html
+import json
 from typing import Any
 
 import folium
@@ -361,6 +363,7 @@ def build_maps(
     DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
     folium.LayerControl(collapsed=False).add_to(main_map)
+    GroupedLayerControlEnhancer().add_to(main_map)
     return MapBundle(main_map=main_map, registry=registry)
 
 
@@ -374,6 +377,222 @@ def add_map_legend(
 
 
 class _MapLegend(MacroElement):
+    _template = Template(
+        """
+        {% macro html(this, kwargs) %}
+        <div class="map-data-legend">
+          <details open>
+            <summary class="legend-title">Legenda hartii</summary>
+            <div class="legend-row"><span class="legend-line county"></span><span>Judet selectat: contur AOI</span></div>
+            <div class="legend-row"><span class="legend-swatch counties"></span><span>Judete Romania NUTS 2024</span></div>
+            {% if this.has_analysis_layers %}
+            <div class="legend-section-title">Layere active implicit</div>
+            {{ this.active_layer_details }}
+            <details class="legend-detail">
+              <summary>Detalii pentru toate layerele</summary>
+              {{ this.layer_details }}
+            </details>
+            {% endif %}
+            <div class="legend-dates">{{ this.date_text }}</div>
+          </details>
+        </div>
+        <script>
+        (function() {
+          var legend = document.currentScript.previousElementSibling;
+          var layers = {{ this.layers_json }};
+          if (!legend || !layers.length) { return; }
+          var activeBox = legend.querySelector('[data-active-layers]');
+          function esc(value) {
+            return String(value || '').replace(/[&<>"']/g, function(char) {
+              return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]);
+            });
+          }
+          function render(items) {
+            if (!activeBox) { return; }
+            if (!items.length) {
+              activeBox.innerHTML = '<div class="legend-card">Activeaza un layer pentru detalii contextuale.</div>';
+              return;
+            }
+            activeBox.innerHTML = items.map(function(layer) {
+              var itemsHtml = (layer.legend_items || []).map(function(item) {
+                return '<div class="legend-row"><span class="legend-swatch" style="background:' + esc(item[0]) + '"></span><span>' + esc(item[1]) + '</span></div>';
+              }).join('');
+              return '<div class="legend-card"><strong>' + esc(layer.display_name) + '</strong>' +
+                '<div>Tip: ' + esc(layer.layer_type || 'layer') + '</div>' +
+                '<div>Sursa: ' + esc(layer.source || 'sursa nespecificata') + '</div>' +
+                '<div>Data/perioada: ' + esc(layer.date_or_period || 'indisponibil') + '</div>' +
+                itemsHtml + '</div>';
+            }).join('');
+          }
+          function checkedLayerNames() {
+            return Array.from(document.querySelectorAll('.leaflet-control-layers-overlays label'))
+              .filter(function(label) {
+                var input = label.querySelector('input[type="checkbox"]');
+                return input && input.checked;
+              })
+              .map(function(label) { return (label.textContent || '').trim(); });
+          }
+          function refresh() {
+            var names = checkedLayerNames();
+            var items = layers.filter(function(layer) {
+              return names.indexOf(layer.display_name) >= 0 || names.indexOf((layer.category || '') + ' - ' + layer.display_name) >= 0;
+            });
+            if (!items.length) {
+              items = layers.filter(function(layer) { return layer.shown; });
+            }
+            render(items.slice(0, 4));
+          }
+          render(layers.filter(function(layer) { return layer.shown; }).slice(0, 4));
+          setTimeout(refresh, 350);
+          document.addEventListener('change', function(event) {
+            if (event.target && event.target.closest && event.target.closest('.leaflet-control-layers')) {
+              setTimeout(refresh, 50);
+            }
+          });
+        })();
+        </script>
+        <style>
+          .map-data-legend {
+            position: fixed;
+            left: 18px;
+            bottom: 24px;
+            z-index: 9999;
+            max-height: 360px;
+            max-width: 340px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid rgba(15, 23, 42, 0.18);
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18);
+            color: #0f172a;
+            font: 12px/1.35 Arial, sans-serif;
+            padding: 10px 12px;
+          }
+          .legend-title { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
+          .legend-section-title { font-weight: 700; margin-top: 8px; }
+          .legend-card {
+            border-top: 1px solid rgba(15, 23, 42, 0.12);
+            margin-top: 6px;
+            padding-top: 6px;
+          }
+          .legend-row {
+            align-items: center;
+            display: flex;
+            gap: 7px;
+            margin: 4px 0;
+          }
+          .legend-swatch {
+            border: 1px solid rgba(15, 23, 42, 0.25);
+            display: inline-block;
+            flex: 0 0 14px;
+            height: 14px;
+            width: 14px;
+          }
+          .legend-line {
+            border-top: 3px solid #b91c1c;
+            display: inline-block;
+            flex: 0 0 22px;
+            width: 22px;
+          }
+          .legend-swatch.counties { background: rgba(56, 189, 248, 0.35); }
+          .legend-dates {
+            border-top: 1px solid rgba(15, 23, 42, 0.12);
+            margin-top: 7px;
+            padding-top: 7px;
+            white-space: pre-line;
+          }
+          .legend-detail {
+            border-top: 1px solid rgba(15, 23, 42, 0.08);
+            margin-top: 5px;
+            padding-top: 5px;
+          }
+          .legend-detail summary { cursor: pointer; font-weight: 700; }
+          .legend-detail ul { margin: 5px 0 0 18px; padding: 0; }
+          .legend-detail li { margin: 6px 0; }
+          .leaflet-control-layers {
+            max-height: 430px;
+            max-width: 380px;
+            overflow-y: auto;
+          }
+          .leaflet-control-layers-overlays,
+          .leaflet-control-layers-base {
+            max-height: 320px;
+            overflow-y: auto;
+          }
+          .leaflet-layer-group-heading {
+            background: #f1f5f9;
+            border-top: 1px solid #cbd5e1;
+            color: #0f172a;
+            font-weight: 700;
+            margin: 6px -4px 3px;
+            padding: 4px 6px;
+          }
+          .leaflet-sbs-divider {
+            background: #f8fafc !important;
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.7), 0 0 10px rgba(15, 23, 42, 0.45) !important;
+            width: 4px !important;
+            z-index: 999 !important;
+          }
+          .leaflet-sbs-range {
+            z-index: 1000 !important;
+            pointer-events: auto !important;
+            cursor: ew-resize !important;
+          }
+        </style>
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, params: Any | None, has_analysis_layers: bool, layer_payload: dict[str, Any] | None = None) -> None:
+        super().__init__()
+        self._name = "MapLegend"
+        self.has_analysis_layers = has_analysis_layers
+        self.date_text = _legend_date_text(params, has_analysis_layers)
+        self.active_layer_details = _active_legend_layer_details(layer_payload)
+        self.layer_details = _legend_layer_details(layer_payload)
+        self.layers_json = json.dumps(_legend_payload_for_js(layer_payload), ensure_ascii=False)
+
+
+class GroupedLayerControlEnhancer(MacroElement):
+    _template = Template(
+        """
+        {% macro script(this, kwargs) %}
+        (function() {
+          function enhance() {
+            document.querySelectorAll('.leaflet-control-layers-overlays').forEach(function(container) {
+              if (container.dataset.grouped === 'true') { return; }
+              container.dataset.grouped = 'true';
+              var labels = Array.from(container.querySelectorAll('label'));
+              var currentGroup = null;
+              labels.forEach(function(label) {
+                var textNode = Array.from(label.childNodes).find(function(node) { return node.nodeType === 3; });
+                var text = (label.textContent || '').trim();
+                var parts = text.split(' - ');
+                var group = parts.length > 1 ? parts[0] : 'Alte layere';
+                var itemName = parts.length > 1 ? parts.slice(1).join(' - ') : text;
+                if (group !== currentGroup) {
+                  currentGroup = group;
+                  var heading = document.createElement('div');
+                  heading.className = 'leaflet-layer-group-heading';
+                  heading.textContent = group;
+                  container.insertBefore(heading, label);
+                }
+                if (textNode) { textNode.textContent = ' ' + itemName; }
+              });
+            });
+          }
+          setTimeout(enhance, 250);
+        })();
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._name = "GroupedLayerControlEnhancer"
+
+
+class _LegacyMapLegend(MacroElement):
     _template = Template(
         """
         {% macro html(this, kwargs) %}
@@ -482,7 +701,7 @@ class _MapLegend(MacroElement):
 
     def __init__(self, params: Any | None, has_analysis_layers: bool, layer_payload: dict[str, Any] | None = None) -> None:
         super().__init__()
-        self._name = "MapLegend"
+        self._name = "LegacyMapLegend"
         self.has_analysis_layers = has_analysis_layers
         self.date_text = _legend_date_text(params, has_analysis_layers)
         self.layer_details = _legend_layer_details(layer_payload)
@@ -523,12 +742,18 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
             details = metadata.get("details") or style.get("description") or layer.get("warning") or ""
             status = "disponibil" if layer.get("available", True) else "indisponibil"
             color = _legend_color(layer.get("id") or "")
+            legend_items = "".join(
+                f"<br><span style=\"display:inline-block;width:10px;height:10px;background:{html.escape(str(item[0]))};border:1px solid #334155;margin-right:4px\"></span>{html.escape(str(item[1]))}"
+                for item in style.get("legend_items", [])
+            )
             rows.append(
                 "<li>"
                 f"<span style=\"display:inline-block;width:12px;height:12px;background:{color};border:1px solid #334155;margin-right:4px\"></span>"
-                f"<strong>{layer.get('display_name')}</strong> ({status})<br>"
-                f"Sursa: {source}<br>"
+                f"<strong>{html.escape(str(layer.get('display_name')))}</strong> ({status})<br>"
+                f"Tip: {html.escape(str(style.get('layer_type', layer.get('layer_type', 'layer'))))}<br>"
+                f"Sursa: {html.escape(str(style.get('source') or source))}<br>"
                 f"Zi/scene: {dates_text}"
+                f"{legend_items}"
                 f"{'<br>' + details if details else ''}"
                 "</li>"
             )
@@ -539,6 +764,68 @@ def _legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
             "</details>"
         )
     return "".join(parts)
+
+
+def _active_legend_layer_details(layer_payload: dict[str, Any] | None) -> str:
+    active_layers = [
+        layer
+        for layer in (layer_payload or {}).get("available", [])
+        if layer.get("shown")
+    ][:4]
+    if not active_layers:
+        return "<div data-active-layers><div class=\"legend-card\">Activeaza un layer pentru detalii contextuale.</div></div>"
+    cards = [_legend_card(layer) for layer in active_layers]
+    return f"<div data-active-layers>{''.join(cards)}</div>"
+
+
+def _legend_card(layer: dict[str, Any]) -> str:
+    style = layer_style(layer.get("id") or "")
+    metadata = layer.get("metadata") or {}
+    dates = metadata.get("dates") or metadata.get("date") or style.get("date_or_period")
+    if isinstance(dates, list):
+        dates_text = ", ".join(str(item) for item in dates) if dates else str(style.get("date_or_period"))
+    else:
+        dates_text = str(dates)
+    legend_items = "".join(
+        "<div class=\"legend-row\">"
+        f"<span class=\"legend-swatch\" style=\"background:{html.escape(str(color))}\"></span>"
+        f"<span>{html.escape(str(label))}</span>"
+        "</div>"
+        for color, label in style.get("legend_items", [])
+    )
+    return (
+        "<div class=\"legend-card\">"
+        f"<strong>{html.escape(str(layer.get('display_name')))}</strong>"
+        f"<div>Tip: {html.escape(str(style.get('layer_type', layer.get('layer_type', 'layer'))))}</div>"
+        f"<div>Sursa: {html.escape(str(style.get('source') or metadata.get('source') or 'sursa nespecificata'))}</div>"
+        f"<div>Data/perioada: {html.escape(dates_text)}</div>"
+        f"{legend_items}"
+        f"<div>{html.escape(str(style.get('description', '')))}</div>"
+        "</div>"
+    )
+
+
+def _legend_payload_for_js(layer_payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for layer in (layer_payload or {}).get("available", []):
+        style = layer_style(layer.get("id") or "")
+        metadata = layer.get("metadata") or {}
+        dates = metadata.get("dates") or metadata.get("date") or style.get("date_or_period")
+        if isinstance(dates, list):
+            dates = ", ".join(str(item) for item in dates) if dates else style.get("date_or_period")
+        payload.append(
+            {
+                "id": layer.get("id"),
+                "display_name": layer.get("display_name"),
+                "category": layer.get("category"),
+                "shown": bool(layer.get("shown")),
+                "layer_type": style.get("layer_type", layer.get("layer_type")),
+                "source": style.get("source") or metadata.get("source"),
+                "date_or_period": str(dates),
+                "legend_items": style.get("legend_items", []),
+            }
+        )
+    return payload
 
 
 def _legend_color(layer_id: str) -> str:
@@ -589,6 +876,23 @@ def add_osm_operational_layers(
                 metadata=_osm_metadata(display_name),
             )
             continue
+        if layer_id == "osm_critical":
+            geojson_layer = _critical_facilities_layer(layer_payload, display_name, color)
+            geojson_layer.add_to(folium_map)
+            registry.add(
+                LayerEntry(
+                    id=layer_id,
+                    display_name=display_name,
+                    category="Impact operational OSM",
+                    layer_type="vector",
+                    available=True,
+                    comparable=False,
+                    shown=False,
+                    folium_layer=geojson_layer,
+                    metadata=_osm_metadata(display_name),
+                )
+            )
+            continue
         geojson_layer = folium.GeoJson(
             layer_payload,
             name=f"Impact operational OSM - {display_name}",
@@ -605,6 +909,11 @@ def add_osm_operational_layers(
                 aliases=["Expunere", "Nume", "Nivel"],
                 localize=True,
                 sticky=True,
+            ),
+            popup=folium.GeoJsonPopup(
+                fields=_osm_popup_fields(layer_id),
+                aliases=_osm_popup_aliases(layer_id),
+                localize=True,
             ),
             show=False,
             control=True,
@@ -623,6 +932,128 @@ def add_osm_operational_layers(
                 metadata=_osm_metadata(display_name),
             )
         )
+
+
+def _critical_facilities_layer(layer_payload: dict[str, Any], display_name: str, color: str) -> folium.FeatureGroup:
+    group = folium.FeatureGroup(name=f"Impact operational OSM - {display_name}", show=False, control=True)
+    line_features = []
+    for feature in layer_payload.get("features", []):
+        geometry = feature.get("geometry") or {}
+        properties = feature.get("properties") or {}
+        if geometry.get("type") == "Point":
+            lon, lat = geometry.get("coordinates", [None, None])[:2]
+            if lat is None or lon is None:
+                continue
+            folium.Marker(
+                location=[lat, lon],
+                icon=_critical_facility_icon(properties),
+                tooltip=properties.get("exposure_label", "obiectiv critic potential expus"),
+                popup=folium.Popup(_osm_popup_html(properties), max_width=320),
+            ).add_to(group)
+        else:
+            line_features.append(feature)
+    if line_features:
+        folium.GeoJson(
+            {"type": "FeatureCollection", "features": line_features},
+            style_function=lambda feature, color=color: {
+                "color": _osm_exposure_color(feature, color),
+                "fillColor": _osm_exposure_color(feature, color),
+                "weight": 2,
+                "fillOpacity": 0.35,
+                "opacity": 0.9,
+            },
+            tooltip=folium.GeoJsonTooltip(
+                fields=["exposure_label", "name", "exposure_status"],
+                aliases=["Expunere", "Nume", "Status"],
+                localize=True,
+                sticky=True,
+            ),
+            popup=folium.GeoJsonPopup(
+                fields=_osm_popup_fields("osm_critical"),
+                aliases=_osm_popup_aliases("osm_critical"),
+                localize=True,
+            ),
+        ).add_to(group)
+    return group
+
+
+def _critical_facility_icon(properties: dict[str, Any]) -> folium.Icon:
+    amenity = properties.get("amenity")
+    icon_name = {
+        "hospital": "plus-square",
+        "clinic": "plus-square",
+        "doctors": "user-md",
+        "fire_station": "fire",
+        "police": "shield",
+        "school": "graduation-cap",
+        "pharmacy": "medkit",
+        "fuel": "tint",
+    }.get(amenity, "exclamation-triangle")
+    color = "red" if amenity in {"hospital", "clinic", "doctors", "fire_station"} else "purple"
+    return folium.Icon(color=color, icon=icon_name, prefix="fa")
+
+
+def _osm_popup_html(properties: dict[str, Any]) -> str:
+    rows = [
+        ("ID OSM", properties.get("osm_id", "necunoscut")),
+        ("Tip geometrie OSM", properties.get("osm_type", "necunoscut")),
+        ("Tip obiectiv", properties.get("amenity", "necunoscut")),
+        ("Nume", properties.get("name", "fara nume")),
+        ("Cladire", properties.get("building", "nespecificat")),
+        ("Operator", properties.get("operator", "nespecificat")),
+        ("Adresa", _osm_address(properties)),
+        ("Sursa", properties.get("osm_source", "OpenStreetMap")),
+        ("Distanta fata de extindere", properties.get("distance_to_extent", "nedisponibila")),
+        ("Status", properties.get("exposure_status", "within buffer")),
+        ("Nivel expunere", properties.get("exposure_level", "nespecificat")),
+    ]
+    return "<br>".join(f"<strong>{html.escape(label)}:</strong> {html.escape(str(value))}" for label, value in rows)
+
+
+def _osm_popup_fields(layer_id: str) -> list[str]:
+    base = ["osm_id", "name", "exposure_label", "exposure_level", "osm_source", "distance_to_extent", "exposure_status"]
+    by_layer = {
+        "osm_buildings": ["building", "addr_city", "addr_street", "addr_housenumber"],
+        "osm_roads": ["highway"],
+        "osm_critical": ["amenity", "building", "operator", "addr_city", "addr_street", "addr_housenumber", "emergency", "healthcare"],
+        "osm_railways": ["railway"],
+        "osm_bridges": ["bridge", "highway", "railway"],
+    }
+    return base + by_layer.get(layer_id, [])
+
+
+def _osm_popup_aliases(layer_id: str) -> list[str]:
+    aliases = {
+        "osm_id": "ID OSM",
+        "name": "Nume",
+        "exposure_label": "Expunere",
+        "exposure_level": "Nivel",
+        "osm_source": "Sursa",
+        "distance_to_extent": "Distanta fata de extindere",
+        "exposure_status": "Status",
+        "building": "Cladire",
+        "addr_city": "Localitate",
+        "addr_street": "Strada",
+        "addr_housenumber": "Numar",
+        "highway": "Tip drum",
+        "amenity": "Tip obiectiv",
+        "operator": "Operator",
+        "emergency": "Serviciu urgenta",
+        "healthcare": "Serviciu medical",
+        "railway": "Tip cale ferata",
+        "bridge": "Pod",
+    }
+    return [aliases[field] for field in _osm_popup_fields(layer_id)]
+
+
+def _osm_address(properties: dict[str, Any]) -> str:
+    parts = [
+        properties.get("addr_street"),
+        properties.get("addr_housenumber"),
+        properties.get("addr_city"),
+    ]
+    address = ", ".join(str(part) for part in parts if part)
+    return address or "nespecificata"
 
 
 def _osm_metadata(display_name: str) -> dict[str, Any]:
@@ -705,6 +1136,7 @@ def build_result_map_from_registry_payload(
     DynamicCompareControl(registry, auto_start=False).add_to(main_map)
     add_map_legend(main_map, params=params, has_analysis_layers=True, layer_payload=registry.report_payload())
     folium.LayerControl(collapsed=False).add_to(main_map)
+    GroupedLayerControlEnhancer().add_to(main_map)
     return MapBundle(main_map=main_map, registry=registry)
 
 

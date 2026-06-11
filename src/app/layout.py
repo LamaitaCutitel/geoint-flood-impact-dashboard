@@ -69,7 +69,14 @@ def sidebar_parameters(
 ) -> tuple[AnalysisParameters, bool, bool]:
     with st.sidebar:
         st.header("Configurare analiza")
-        presentation_mode = st.toggle("Mod prezentare", value=False)
+        presentation_mode = st.toggle(
+            "Mod prezentare",
+            value=False,
+            help=(
+                "Simplifica panoul lateral si lasa harta ca element principal. "
+                "Activeaza-l pentru prezentare; dezactiveaza-l cand ajustezi parametri avansati."
+            ),
+        )
         st.session_state.presentation_mode = presentation_mode
 
         with st.expander("Mod simplu", expanded=True):
@@ -97,29 +104,41 @@ def sidebar_parameters(
         with st.form("analysis_parameters_form"):
             with st.expander("B. Perioade analizate", expanded=True):
                 before_start = st.date_input(
-                    "Data inceput before",
+                    "Data inceput perioada de referinta (BEFORE)",
                     GALATI_PRESET["before_start_date"],
-                    help="Perioada before reprezinta intervalul de referinta anterior evenimentului.",
+                    help=(
+                        "Prima zi cautata pentru imaginea sau compozitul de referinta. "
+                        "Un interval prea scurt poate sa nu gaseasca scene compatibile; implicit este recomandat pentru evenimentul presetat."
+                    ),
                 )
                 before_end = st.date_input(
-                    "Data sfarsit before",
+                    "Data sfarsit perioada de referinta (BEFORE)",
                     GALATI_PRESET["before_end_date"],
-                    help="Perioada before reprezinta intervalul de referinta anterior evenimentului.",
+                    help=(
+                        "Ultima zi cautata pentru perioada de referinta. Ajusteaza doar daca nu exista scene Sentinel-1 compatibile."
+                    ),
                 )
                 after_start = st.date_input(
-                    "Data inceput after",
+                    "Data inceput perioada dupa eveniment (AFTER)",
                     GALATI_PRESET["after_start_date"],
-                    help="Perioada after reprezinta intervalul in care este analizata extinderea preliminara a apei.",
+                    help=(
+                        "Prima zi cautata dupa eveniment. Controleaza scenele folosite pentru apa observata automat prin SAR."
+                    ),
                 )
                 after_end = st.date_input(
-                    "Data sfarsit after",
+                    "Data sfarsit perioada dupa eveniment (AFTER)",
                     GALATI_PRESET["after_end_date"],
-                    help="Perioada after reprezinta intervalul in care este analizata extinderea preliminara a apei.",
+                    help=(
+                        "Ultima zi cautata dupa eveniment. Un interval prea larg poate amesteca stari diferite ale apei."
+                    ),
                 )
                 event_date = st.date_input(
                     "Data evenimentului",
                     GALATI_PRESET["event_date"],
-                    help="Data folosita pentru recomandarea automata a scenelor BEFORE si AFTER.",
+                    help=(
+                        "Data de referinta a evenimentului. Este folosita pentru ordonarea scenelor candidate BEFORE/AFTER; "
+                        "seteaz-o la data principala a fenomenului analizat."
+                    ),
                 )
 
             with st.expander("Setari avansate SAR", expanded=not presentation_mode):
@@ -127,20 +146,29 @@ def sidebar_parameters(
                     "Polarizare",
                     ["VH", "VV"],
                     horizontal=True,
-                    help="VH este recomandata implicit pentru evidentierea schimbarilor asociate apei. VV poate fi testata comparativ.",
+                    help=(
+                        "Alege banda radar Sentinel-1 folosita. VH este recomandata implicit pentru evidentierea apei; "
+                        "VV poate fi testata comparativ, dar poate raspunde diferit pe zone urbane sau vegetatie."
+                    ),
                 )
                 orbit_pass = st.selectbox(
-                    "Orbit pass",
+                    "Directia orbitei",
                     ["BOTH", "ASCENDING", "DESCENDING"],
-                    help="Selecteaza directia orbitei Sentinel-1. Pentru comparatii robuste, imaginile before si after trebuie sa fie compatibile. Foloseste BOTH doar pentru explorare.",
+                    help=(
+                        "Selecteaza directia orbitei Sentinel-1. Pentru comparatii robuste, scenele BEFORE si AFTER trebuie "
+                        "sa fie compatibile; BOTH este util la cautare, dar poate cere confirmare suplimentara."
+                    ),
                 )
                 threshold = st.slider(
-                    "SAR change threshold",
+                    "Prag schimbare SAR",
                     0.5,
                     3.0,
                     1.25,
                     0.05,
-                    help="Controleaza sensibilitatea detectiei. Un prag mai permisiv poate detecta mai multe zone, dar poate creste numarul de rezultate false pozitive.",
+                    help=(
+                        "Controleaza sensibilitatea schimbarii dintre BEFORE si AFTER. Valoarea implicita este echilibrata; "
+                        "un prag prea mic poate include zgomot, iar unul prea mare poate omite apa observata automat prin SAR."
+                    ),
                 )
                 sar_water_mode = st.selectbox(
                     "Mod detectie apa SAR",
@@ -153,36 +181,44 @@ def sidebar_parameters(
                 )
                 default_water_threshold = sar_water_threshold_for_mode(polarization, sar_water_mode, -18.0)
                 sar_water_threshold = st.number_input(
-                    "SAR water threshold",
+                    "Prag apa SAR",
                     value=float(default_water_threshold),
                     step=0.5,
                     disabled=sar_water_mode != "Manual",
                     help=(
-                        "Pragul SAR water threshold este utilizat pentru identificarea pixelilor radar cu "
-                        "comportament compatibil cu apa. Este diferit de pragul change detection, care "
-                        "masoara schimbarea dintre imaginile BEFORE si AFTER."
+                        "Controleaza identificarea pixelilor radar cu semnal compatibil cu apa. Se modifica manual doar "
+                        "cand presetul nu se potriveste; o valoare prea sensibila poate include umbre radar sau sol umed."
                     ),
                 )
                 smoothing_radius = st.slider(
-                    "Smoothing radius",
+                    "Raza netezire speckle",
                     0,
                     100,
                     30,
                     5,
-                    help="Reduce zgomotul speckle specific imaginilor radar. O valoare prea mare poate elimina detalii locale.",
+                    help=(
+                        "Reduce zgomotul speckle specific imaginilor radar. Valoarea implicita pastreaza un compromis; "
+                        "o raza prea mare poate sterge detalii locale sau canale inguste."
+                    ),
                 )
                 minimum_connected = st.slider(
-                    "Minimum connected pixels",
+                    "Numar minim pixeli conectati",
                     0,
                     50,
                     8,
                     1,
-                    help="Elimina grupurile foarte mici de pixeli izolati pentru a reduce zgomotul.",
+                    help=(
+                        "Elimina grupurile mici de pixeli izolati. Creste valoarea pentru rezultate mai curate; "
+                        "scade-o daca vrei sa pastrezi extinderi mici, cu risc mai mare de zgomot."
+                    ),
                 )
                 mask_permanent = st.toggle(
-                    "Permanent water masking",
+                    "Masca apa permanenta",
                     value=True,
-                    help="Elimina corpurile de apa permanente folosind JRC Global Surface Water, astfel incat rezultatul sa evidentieze mai bine apa temporara.",
+                    help=(
+                        "Elimina corpurile de apa permanente folosind JRC Global Surface Water. Este recomandata implicit "
+                        "pentru evidentierea apei temporare; dezactivarea poate include lacuri si rauri permanente."
+                    ),
                 )
                 jrc_mode = st.selectbox(
                     "Mod masca JRC",
@@ -195,17 +231,28 @@ def sidebar_parameters(
 
             with st.expander("Performanta si compozit", expanded=not presentation_mode):
                 profile = st.selectbox(
-                    "Profil analiza",
-                    ["Rapid preview", "Standard", "Detailed"],
+                    "Profil de performanta",
+                    ["Previzualizare rapida", "Standard", "Export detaliat"],
                     index=1,
-                    help="Rapid preview foloseste o scara mai redusa pentru rezultate rapide. Standard este recomandat pentru majoritatea analizelor. Detailed este destinat exporturilor si poate necesita mai mult timp.",
+                    help=(
+                        "Controleaza viteza si nivelul de detaliu. Standard este recomandat; Previzualizare rapida raspunde mai repede, "
+                        "iar Export detaliat poate dura mai mult."
+                    ),
                 )
-                scale_key = "Detailed export" if profile == "Detailed" else profile
+                profile_key = {
+                    "Previzualizare rapida": "Rapid preview",
+                    "Standard": "Standard",
+                    "Export detaliat": "Detailed",
+                }[profile]
+                scale_key = "Detailed export" if profile_key == "Detailed" else profile_key
                 scale = st.select_slider(
-                    "Scara",
+                    "Scara analiza",
                     options=[10, 20, 30, 40, 50],
                     value=PROFILE_SCALES[scale_key],
-                    help="Rezolutia de calcul trimisa catre Google Earth Engine.",
+                    help=(
+                        "Rezolutia de calcul trimisa catre Google Earth Engine, in metri. Valoarea implicita Standard este recomandata; "
+                        "o scara prea fina poate creste timpul de procesare."
+                    ),
                 )
                 before_sar_method = st.selectbox(
                     "Metoda BEFORE",
@@ -228,7 +275,7 @@ def sidebar_parameters(
                     ),
                 )
                 dynamic_world_after_mode = st.selectbox(
-                    "Dynamic World AFTER",
+                    "Fereastra Dynamic World dupa eveniment",
                     ["Fereastra apropiata de scena SAR AFTER", "Interval complet"],
                     help=(
                         "Default: foloseste o fereastra scurta in jurul scenei SAR AFTER. "
@@ -237,8 +284,16 @@ def sidebar_parameters(
                 )
 
             with st.expander("Layere optionale", expanded=False):
-                show_before = st.checkbox("SAR before", True)
-                show_after = st.checkbox("SAR after", True)
+                show_before = st.checkbox(
+                    "Imagine de referinta SAR (BEFORE)",
+                    True,
+                    help="Afiseaza scena sau compozitul SAR de referinta pe harta. Dezactiveaza pentru o harta mai simpla.",
+                )
+                show_after = st.checkbox(
+                    "Imagine dupa eveniment SAR (AFTER)",
+                    True,
+                    help="Afiseaza scena sau compozitul SAR dupa eveniment. Este utila pentru comparatia vizuala.",
+                )
                 load_optional_layers = st.checkbox(
                     "Incarca layere suplimentare",
                     False,
@@ -248,22 +303,61 @@ def sidebar_parameters(
                     ),
                 )
                 show_change = load_optional_layers
-                show_flood = st.checkbox("Extindere detectata", True)
-                show_sar_water = st.checkbox("Afiseaza layere apa SAR", True)
-                show_sar_dw = st.checkbox("Afiseaza corelare SAR x Dynamic World", True)
-                show_permanent = st.checkbox("Apa permanenta", True)
-                show_land = st.checkbox("Dynamic World", True)
+                show_flood = st.checkbox(
+                    "Extindere preliminara filtrata",
+                    True,
+                    help="Afiseaza rezultatul principal al analizei SAR filtrate.",
+                )
+                show_sar_water = st.checkbox(
+                    "Afiseaza layere apa SAR",
+                    True,
+                    help="Include apa observata prin SAR inainte, dupa eveniment si apa noua evidentiata prin SAR.",
+                )
+                show_sar_dw = st.checkbox(
+                    "Afiseaza corelare SAR x Dynamic World",
+                    True,
+                    help="Afiseaza suprapunerea multisursa si diferentele dintre SAR si Dynamic World.",
+                )
+                show_permanent = st.checkbox(
+                    "Apa permanenta JRC",
+                    True,
+                    help="Afiseaza masca de apa permanenta folosita ca referinta.",
+                )
+                show_land = st.checkbox(
+                    "Dynamic World",
+                    True,
+                    help="Afiseaza clasele Dynamic World BEFORE/AFTER si diferentele observate.",
+                )
                 show_s2 = load_optional_layers
                 show_osm_impact = st.checkbox(
                     "Calculeaza impact operational OSM",
                     False,
                     help=(
                         "Interogheaza Overpass API la cerere pentru cladiri, drumuri, obiective "
-                        "critice, cai ferate si poduri in bbox-ul AOI extins cu buffer."
+                        "critice, cai ferate si poduri. Interogarea foloseste bbox-ul AOI pentru viteza, "
+                        "dar rezultatele afisate si raportate sunt filtrate la interiorul judetului."
                     ),
                 )
-                osm_buffer = st.slider("Buffer OSM metri", 0, 2000, 500, 100)
-                osm_limit = st.selectbox("Limita elemente OSM", [500, 1000, 2500, 5000], index=0)
+                osm_buffer = st.slider(
+                    "Buffer OSM metri",
+                    0,
+                    2000,
+                    500,
+                    100,
+                    help=(
+                        "Distanta suplimentara folosita pentru a cauta elemente OSM in jurul extinderii preliminare. "
+                        "500 m este recomandat; valori mari pot incetini interogarea Overpass."
+                    ),
+                )
+                osm_limit = st.selectbox(
+                    "Limita elemente OSM",
+                    [500, 1000, 2500, 5000],
+                    index=0,
+                    help=(
+                        "Numarul maxim de elemente cerute pe categorie OSM. Pastreaza 500 pentru stabilitate; creste doar daca zona este mare "
+                        "si conexiunea Overpass raspunde bine."
+                    ),
+                )
 
             pair_status = st.session_state.get("sar_pair_status") or {}
             final_disabled = (
@@ -310,7 +404,7 @@ def sidebar_parameters(
         minimum_connected_pixels=minimum_connected,
         mask_permanent_water=mask_permanent,
         jrc_water_mode=jrc_mode,
-        analysis_profile=profile,
+        analysis_profile=profile_key,
         scale=scale,
         show_permanent_water=show_permanent,
         show_land_cover=show_land,

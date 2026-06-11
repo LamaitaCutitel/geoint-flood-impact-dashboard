@@ -55,10 +55,39 @@ def test_generate_reports_writes_json_csv_html_and_log(tmp_path):
         {"crops": 10.0, "built": 0.2},
         ["Raport generat."],
         ["warning"],
+        osm_layers={
+            "osm_buildings": {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "geometry": None, "properties": {"name": "test"}}
+                ],
+            }
+        },
     )
-    assert set(paths) == {"json", "csv", "html", "log", "log_json"}
+    assert {"json", "csv", "html", "log", "log_json", "charts_dir", "report_assets_dir"} <= set(paths)
     payload = json.loads(paths["json"].read_text(encoding="utf-8"))
     assert payload["warnings"] == ["warning"]
-    assert "Raport GEOINT preliminar" in paths["html"].read_text(encoding="utf-8")
+    html = paths["html"].read_text(encoding="utf-8")
+    assert "Raport GEOINT preliminar" in html
+    assert "data:image/svg+xml;base64" in html
+    assert "Rezultatele reprezinta produse GEOINT preliminare" in html
     assert "Raport generat." in paths["log"].read_text(encoding="utf-8")
     assert paths["log_json"].exists()
+    assert paths["charts_dir"].is_dir()
+    assert paths["report_assets_dir"].is_dir()
+    assert paths["osm_buildings"].exists()
+
+
+def test_generate_reports_without_osm_still_writes_offline_report(tmp_path):
+    paths = generate_reports(
+        tmp_path,
+        _params(),
+        _metrics(),
+        {},
+        [],
+        [],
+    )
+
+    assert "osm_buildings" not in paths
+    assert paths["html"].exists()
+    assert list(paths["charts_dir"].glob("*.svg"))

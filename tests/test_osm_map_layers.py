@@ -1,7 +1,15 @@
 from types import SimpleNamespace
 
 from src.app.layer_registry import LayerRegistry
-from src.app.map_builder import _osm_exposure_color, build_maps
+from src.app.map_builder import (
+    GroupedLayerControlEnhancer,
+    _critical_facility_icon,
+    _legend_payload_for_js,
+    _osm_exposure_color,
+    _osm_popup_html,
+    _osm_popup_fields,
+    build_maps,
+)
 
 
 class _FakeEeImage:
@@ -48,3 +56,57 @@ def test_osm_exposure_color_uses_level_before_fallback():
     assert _osm_exposure_color({"properties": {"exposure_level": "high"}}, "#0ea5e9") == "#dc2626"
     assert _osm_exposure_color({"properties": {"exposure_level": "medium"}}, "#0ea5e9") == "#f97316"
     assert _osm_exposure_color({"properties": {}}, "#0ea5e9") == "#0ea5e9"
+
+
+def test_critical_facility_icon_and_popup_are_contextual():
+    icon = _critical_facility_icon({"amenity": "hospital"})
+    popup = _osm_popup_html(
+        {
+            "amenity": "hospital",
+            "name": "Spital test",
+            "osm_source": "OpenStreetMap",
+            "distance_to_extent": "0 m",
+            "exposure_status": "intersected",
+        }
+    )
+
+    assert "plus-square" in icon.options["icon"]
+    assert "Spital test" in popup
+    assert "intersected" in popup
+    assert "ID OSM" in popup
+
+
+def test_critical_facility_popup_fields_match_building_detail_level():
+    fields = _osm_popup_fields("osm_critical")
+
+    assert "osm_id" in fields
+    assert "name" in fields
+    assert "amenity" in fields
+    assert "building" in fields
+    assert "operator" in fields
+    assert "addr_street" in fields
+    assert "exposure_status" in fields
+
+
+def test_legend_payload_contains_contextual_style_fields():
+    payload = _legend_payload_for_js(
+        {
+            "available": [
+                {
+                    "id": "sar_new_water",
+                    "display_name": "Apa noua evidentiata prin SAR",
+                    "category": "Analiza apei prin SAR",
+                    "shown": True,
+                    "metadata": {"dates": ["2024-09-15"]},
+                }
+            ]
+        }
+    )
+
+    assert payload[0]["source"] == "COPERNICUS/S1_GRD"
+    assert payload[0]["date_or_period"] == "2024-09-15"
+    assert payload[0]["legend_items"]
+
+
+def test_grouped_layer_control_enhancer_is_available():
+    assert GroupedLayerControlEnhancer()._name == "GroupedLayerControlEnhancer"

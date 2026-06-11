@@ -1036,6 +1036,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
                     params.bbox,
                     buffer_meters=params.osm_buffer_meters,
                     limit=params.osm_query_limit,
+                    county_geometry=params.county_geometry,
                 )
                 osm_metrics = osm_payload["metrics"]
                 osm_layers = osm_payload["layers"]
@@ -1118,6 +1119,7 @@ def _run_analysis(st: Any, params: Any, counties_geojson: dict[str, Any] | None,
             warnings=logger.warnings + detection.warnings,
             layer_registry=layer_registry_payload,
             processing_log_json=logger.as_json(),
+            osm_layers=osm_layers,
         )
         logger.log(100, "Analiza a fost finalizata.", "success")
         progress_bar.progress(100)

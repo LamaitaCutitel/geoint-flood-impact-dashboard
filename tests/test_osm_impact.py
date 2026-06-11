@@ -4,6 +4,7 @@ from src.app.osm_impact import (
     expanded_bbox,
     fetch_osm_operational_impact,
     fetch_osm_operational_impact_payload,
+    filter_osm_layers_to_geometry,
     _fetch_overpass_by_category,
     summarize_osm_elements,
 )
@@ -68,6 +69,64 @@ def test_osm_payload_contains_geojson_layers():
     assert payload["layers"]["osm_bridges"]["features"]
 
 
+def test_osm_payload_filters_layers_to_county_geometry():
+    county_geometry = {
+        "type": "Polygon",
+        "coordinates": [[
+            [27.0, 45.0],
+            [27.2, 45.0],
+            [27.2, 45.2],
+            [27.0, 45.2],
+            [27.0, 45.0],
+        ]],
+    }
+
+    def fetcher(query):
+        return {
+            "elements": [
+                {"type": "node", "id": 1, "lat": 45.1, "lon": 27.1, "tags": {"amenity": "hospital", "name": "in judet"}},
+                {"type": "node", "id": 2, "lat": 45.5, "lon": 27.5, "tags": {"amenity": "hospital", "name": "in afara"}},
+            ]
+        }
+
+    payload = fetch_osm_operational_impact_payload(
+        [27.0, 45.0, 28.0, 46.0],
+        fetcher=fetcher,
+        county_geometry=county_geometry,
+    )
+
+    critical = payload["layers"]["osm_critical"]["features"]
+    assert len(critical) == 1
+    assert critical[0]["properties"]["name"] == "in judet"
+    assert payload["metrics"]["osm_critical_assets"] == 1
+
+
+def test_filter_osm_layers_to_geometry_removes_outside_features():
+    county_geometry = {
+        "type": "Polygon",
+        "coordinates": [[
+            [27.0, 45.0],
+            [27.2, 45.0],
+            [27.2, 45.2],
+            [27.0, 45.2],
+            [27.0, 45.0],
+        ]],
+    }
+    layers = {
+        "osm_buildings": {
+            "type": "FeatureCollection",
+            "features": [
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [27.1, 45.1]}, "properties": {}},
+                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [27.8, 45.8]}, "properties": {}},
+            ],
+        }
+    }
+
+    filtered = filter_osm_layers_to_geometry(layers, county_geometry)
+
+    assert len(filtered["osm_buildings"]["features"]) == 1
+
+
 def test_build_osm_geojson_layers_groups_operational_features():
     layers = build_osm_geojson_layers(
         [
@@ -80,6 +139,7 @@ def test_build_osm_geojson_layers_groups_operational_features():
 
     assert layers["osm_railways"]["features"][0]["properties"]["exposure_label"] == "cale ferata intersectata"
     assert layers["osm_critical"]["features"][0]["properties"]["exposure_level"] == "high"
+    assert layers["osm_critical"]["features"][0]["properties"]["osm_id"] == 3
 
 
 def test_category_query_limits_requested_osm_payload():
