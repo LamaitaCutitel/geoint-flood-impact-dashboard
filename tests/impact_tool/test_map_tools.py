@@ -4,7 +4,11 @@ from src.impact_tool.map.builder import build_shell_map
 from src.impact_tool.map.layers import add_osm_layers, add_tile_layers
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.osm_impact import visible_impact_layers
-from src.impact_tool.ui.shell import _analysis_layers, _map_render_key
+from src.impact_tool.ui.shell import (
+    _analysis_layers,
+    _comparison_layers,
+    _map_render_key,
+)
 import folium
 import pytest
 
@@ -14,6 +18,80 @@ def test_map_contains_identify_measure_navigation_and_fullscreen() -> None:
     assert "LatLngPopup" in html or "latlng" in html.lower()
     assert "L.Control.Measure" in html
     assert "fullscreen" in html.lower()
+
+
+def test_thematic_compare_tool_is_visible_and_has_presets() -> None:
+    html = build_shell_map(
+        None,
+        "Galati",
+        layer_compare_layers={
+            "sar_water_before": {"name": "SAR BEFORE", "url": "https://tiles/before"},
+            "sar_water_after": {"name": "SAR AFTER", "url": "https://tiles/after"},
+        },
+        layer_compare_left_id="sar_water_before",
+        layer_compare_right_id="sar_water_after",
+    ).get_root().render()
+    assert "Compară layerele tematice" in html
+    assert "SAR BEFORE ↔ SAR AFTER" in html
+    assert "innerHTML = '↔'" in html
+
+
+def test_only_one_compare_divider_can_be_active() -> None:
+    html = build_shell_map(
+        None,
+        "Galati",
+        preview_tiles={"before": "https://tiles/before", "after": "https://tiles/after"},
+        layer_compare_layers={
+            "sar_water_before": {"name": "SAR BEFORE", "url": "https://tiles/before"},
+            "sar_water_after": {"name": "SAR AFTER", "url": "https://tiles/after"},
+        },
+        layer_compare_active=True,
+    ).get_root().render()
+    assert "LayerCompareControl" not in html
+    assert "Comparatie BEFORE AFTER" in html
+
+
+def test_comparison_layers_include_required_basemaps_and_products() -> None:
+    state = ImpactToolState(
+        analysis_results={
+            "sar": {
+                "tiles": {
+                    "sar_water_before": "before",
+                    "sar_water_after": "after",
+                    "sar_new_water": "new",
+                }
+            },
+            "dynamic_world": {
+                "tiles": {
+                    key: {"url": key, "status": "reușit"}
+                    for key in (
+                        "dynamic_world_before",
+                        "dynamic_world_after",
+                        "dynamic_world_changes",
+                        "dynamic_world_new_water",
+                        "both_methods",
+                        "only_sar",
+                        "only_dynamic_world",
+                    )
+                }
+            },
+        }
+    )
+    layers = _comparison_layers(state)
+    assert {
+        "sar_water_before",
+        "sar_water_after",
+        "sar_new_water",
+        "dynamic_world_before",
+        "dynamic_world_after",
+        "dynamic_world_changes",
+        "dynamic_world_new_water",
+        "both_methods",
+        "only_sar",
+        "only_dynamic_world",
+        "basemap_satellite",
+        "basemap_osm_light",
+    }.issubset(layers)
 
 
 def test_layer_control_contains_only_two_basemaps() -> None:

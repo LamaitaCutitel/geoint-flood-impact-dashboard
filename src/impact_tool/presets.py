@@ -7,7 +7,7 @@ from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.osm import inspect_osm_cache
 from src.impact_tool.osm_impact import buffered_geometry
-from src.impact_tool.state import set_county, update_buffer
+from src.impact_tool.state import clear_aoi, set_county, update_buffer
 
 
 GALATI_PRESET_NAME = "Inundații Galați — septembrie 2024"
@@ -20,6 +20,7 @@ def apply_galati_preset(
     county_geometry: dict[str, Any],
     county_bbox: list[float],
 ) -> None:
+    clear_aoi(state)
     set_county(state, "Galati", county_geometry, county_bbox)
     update_buffer(state, 250)
     state.preset_name = GALATI_PRESET_NAME

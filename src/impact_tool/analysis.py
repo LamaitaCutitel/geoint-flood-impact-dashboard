@@ -12,10 +12,14 @@ from src.impact_tool.dynamic_world import (
     run_dynamic_world_analysis,
 )
 from src.impact_tool.models import ImpactToolState
-from src.impact_tool.osm import load_osm_categories, retry_osm_category
+from src.impact_tool.osm import (
+    load_cached_osm_layers,
+    load_osm_categories,
+    retry_osm_category,
+)
 from src.impact_tool.osm_impact import buffered_geometry, classify_osm_impact
 from src.impact_tool.sar import SarParameters, run_sar_analysis
-from src.impact_tool.state import record_timing
+from src.impact_tool.state import invalidate_report, record_timing, reset_comparison
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -51,6 +55,8 @@ def execute_analysis(
             parameters,
         )
         state.analysis_results["sar"] = sar
+        state.analysis_results["sar_status"] = "reușit"
+        reset_comparison(state)
         record_timing(state, "SAR", sar.get("duration_seconds", 0))
         record_timing(
             state,
@@ -85,13 +91,27 @@ def execute_analysis(
         )
         state.analysis_complete = True
         state.active_layers = ["sar_new_water", "buffer", "osm_critical"]
+        dynamic = state.analysis_results.get("dynamic_world")
+        if (
+            state.analysis_mode == "detaliat"
+            and dynamic
+            and dynamic.get("status") == "reușit"
+        ):
+            state.active_layers.append("dynamic_world_new_water")
         if load_osm:
             _progress(state, progress_callback, 75, "Încărcare automată OpenStreetMap")
-            execute_osm_loading(
+            osm_success = execute_osm_loading(
                 state,
                 progress_callback=progress_callback,
                 gee_status=gee,
             )
+            state.analysis_results["workflow_status"] = (
+                state.analysis_results.get("osm_load_status", "osm_complet")
+                if osm_success
+                else "osm_indisponibil"
+            )
+        else:
+            state.analysis_results["workflow_status"] = "sar_reușit"
         _progress(state, progress_callback, 100, "Analiza impactului a fost finalizată")
         return True
     except Exception as exc:
@@ -114,6 +134,7 @@ def execute_dynamic_world(
     gee: Any | None = None,
     aoi: Any | None = None,
 ) -> bool:
+    invalidate_report(state)
     sar = state.analysis_results.get("sar")
     if not sar or not state.before_scene or not state.after_scene:
         state.analysis_results["dynamic_world_error"] = (
@@ -147,6 +168,13 @@ def execute_dynamic_world(
             state.analysis_results["dynamic_world_error"] = (
                 result.get("error") or result.get("status")
             )
+        impact = state.analysis_results.get("osm_impact")
+        if result.get("status") == "reușit" and impact:
+            state.analysis_results["osm_dynamic_world"] = correlate_osm_dynamic_world(
+                gee_status.ee,
+                result,
+                impact,
+            )
         state.cache_events.append(
             "Diferențele observate Dynamic World au fost calculate."
         )
@@ -167,6 +195,7 @@ def execute_osm_loading(
     progress_callback: ProgressCallback | None = None,
     gee_status: Any | None = None,
 ) -> bool:
+    invalidate_report(state)
     if not state.analysis_complete:
         state.analysis_error = "Datele OSM pot fi încărcate numai după analiza SAR."
         return False
@@ -191,11 +220,11 @@ def execute_osm_loading(
             )
             current = state.analysis_results.get(
                 "osm_raw",
-                {"layers": {}, "status": {}, "attribution": result["attribution"]},
+                {"cache_refs": {}, "attribution": result["attribution"]},
             )
-            current["layers"].update(result["layers"])
-            current["status"].update(result["status"])
+            current["cache_refs"].update(result.get("cache_refs", {}))
             state.analysis_results["osm_raw"] = current
+            state.osm_cache_refs.update(result.get("cache_refs", {}))
             state.osm_status.update(result["status"])
         else:
             categories = (
@@ -204,8 +233,21 @@ def execute_osm_loading(
                 else ("buildings", "roads", "railways", "bridges", "critical")
             )
             result = load_osm_categories(categories=categories, **arguments)
-            state.analysis_results["osm_raw"] = result
+            state.osm_cache_refs = dict(result.get("cache_refs", {}))
+            state.analysis_results["osm_raw"] = {
+                "cache_refs": state.osm_cache_refs,
+                "attribution": result["attribution"],
+            }
             state.osm_status = result["status"]
+        successful = [
+            status for status in state.osm_status.values() if status.get("ok")
+        ]
+        if successful and len(successful) == len(state.osm_status):
+            state.analysis_results["osm_load_status"] = "osm_complet"
+        elif successful:
+            state.analysis_results["osm_load_status"] = "osm_parțial"
+        else:
+            state.analysis_results["osm_load_status"] = "osm_indisponibil"
         record_timing(state, "cache OSM", perf_counter() - osm_started)
         state.cache_events.append("Încărcarea OSM pe categorii a fost finalizată.")
         _progress(
@@ -214,7 +256,9 @@ def execute_osm_loading(
             92,
             "Clasificare impact OSM direct și în buffer",
         )
-        recalculate_osm_impact(state)
+        impact_ready = recalculate_osm_impact(state)
+        if not impact_ready:
+            state.analysis_results["osm_load_status"] = "impact_osm_indisponibil"
         dynamic = state.analysis_results.get("dynamic_world")
         impact = state.analysis_results.get("osm_impact")
         if dynamic and impact and dynamic.get("status") == "reușit":
@@ -227,8 +271,9 @@ def execute_osm_loading(
                         impact,
                     )
                 )
-        return True
+        return bool(successful)
     except Exception as exc:
+        state.analysis_results["osm_load_status"] = "eroare"
         state.analysis_error = (
             "Analiza raster a fost finalizată, dar datele OSM nu au putut fi "
             f"încărcate: {exc}"
@@ -240,18 +285,40 @@ def execute_osm_loading(
 
 
 def recalculate_osm_impact(state: ImpactToolState) -> bool:
+    invalidate_report(state)
     raw = state.analysis_results.get("osm_raw")
     sar = state.analysis_results.get("sar")
     water_geometry = (sar or {}).get("new_water_geometry")
     if not raw or not water_geometry:
         return False
+    cache_refs = raw.get("cache_refs") or state.osm_cache_refs
+    layers = load_cached_osm_layers(PersistentCache(), cache_refs)
+    if not layers:
+        return False
     impact_started = perf_counter()
-    state.analysis_results["osm_impact"] = classify_osm_impact(
-        raw.get("layers", {}),
+    impact = classify_osm_impact(
+        layers,
         water_geometry,
         state.buffer_meters,
         active_geometry=state.active_geometry,
     )
+    compact_layers = {}
+    for layer_id, collection in impact.get("layers", {}).items():
+        display_features = collection.get(
+            "display_features",
+            collection.get("features", []),
+        )
+        compact_layers[layer_id] = {
+            key: value
+            for key, value in collection.items()
+            if key not in {"features", "analysis_features", "display_features"}
+        }
+        compact_layers[layer_id]["features"] = display_features
+        compact_layers[layer_id]["display_features"] = display_features
+    state.analysis_results["osm_impact"] = {
+        **impact,
+        "layers": compact_layers,
+    }
     record_timing(state, "impact OSM", perf_counter() - impact_started)
     state.cache_events.append(
         f"Impactul OSM a fost recalculat pentru bufferul de {state.buffer_meters} m."

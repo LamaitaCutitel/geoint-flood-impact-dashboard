@@ -30,25 +30,45 @@ def record_timing(state: ImpactToolState, stage: str, seconds: float) -> None:
     state.cache_events.append(f"Timp {stage}: {duration:.3f} s.")
 
 
-def reset_scene_selection(state: ImpactToolState) -> None:
-    state.before_scene = None
-    state.after_scene = None
-    state.scene_gallery_limit = 8
-    state.scenes_confirmed = False
+def invalidate_report(state: ImpactToolState) -> None:
+    state.report_bytes = None
+    state.report_filename = ""
+    state.report_requested = False
+
+
+def reset_comparison(state: ImpactToolState) -> None:
     state.comparison_ready = False
     state.swipe_enabled = False
     state.preview_tiles.clear()
+    state.scene_compare_active = False
+    state.scene_compare_tiles.clear()
+    state.layer_compare_active = False
     state.preview_scene_id = ""
     state.preview_scene_tile = ""
+
+
+def reset_scene_selection(state: ImpactToolState) -> None:
+    state.before_scene = None
+    state.after_scene = None
+    state.scene_candidates.clear()
+    state.scene_query.clear()
+    state.scene_errors.clear()
+    state.scene_warnings.clear()
+    state.scene_gallery_limit = 8
+    state.scenes_confirmed = False
+    reset_comparison(state)
+    invalidate_report(state)
     state.cache_events.append("Selecția scenelor a fost resetată.")
 
 
 def reset_analysis_results(state: ImpactToolState) -> None:
     state.analysis_complete = False
     state.analysis_results.clear()
+    state.osm_status.clear()
+    state.osm_cache_refs.clear()
     state.active_layers = ["sar_new_water", "buffer", "osm_critical"]
     state.analysis_hash = ""
-    state.report_bytes = None
+    invalidate_report(state)
     state.analysis_progress = 0
     state.timings.clear()
     state.analysis_stage = "Pregătit pentru analiză"
@@ -65,7 +85,7 @@ def update_buffer(state: ImpactToolState, buffer_meters: int) -> bool:
         return False
     state.buffer_meters = buffer_meters
     state.analysis_results.pop("osm_impact", None)
-    state.report_bytes = None
+    invalidate_report(state)
     state.cache_events.append(
         f"Se recalculează impactul pentru bufferul de {buffer_meters} m."
     )
@@ -85,8 +105,9 @@ def apply_scene_pair(
     state.before_scene = before
     state.after_scene = after
     state.scenes_confirmed = confirmed
-    state.comparison_ready = bool(before and after)
+    state.comparison_ready = bool(before and after and not confirmed)
     if changed:
+        reset_comparison(state)
         reset_analysis_results(state)
         state.cache_events.append("Scenele s-au schimbat; rezultatele dependente au fost invalidate.")
 

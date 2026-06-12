@@ -31,6 +31,7 @@ from src.impact_tool.state import (
     apply_scene_pair,
     clear_aoi,
     record_timing,
+    reset_comparison,
     set_county,
     update_buffer,
 )
@@ -196,28 +197,30 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
             )
 
         if state.comparison_ready:
-            swipe_enabled = st.toggle(
+            scene_compare_active = st.toggle(
                 "Activează bara BEFORE / AFTER",
-                value=state.swipe_enabled,
+                value=state.scene_compare_active,
                 help="Încarcă imaginile selectate și afișează separatorul vertical pe hartă.",
             )
-            if swipe_enabled != state.swipe_enabled:
-                state.swipe_enabled = swipe_enabled
-                if swipe_enabled and not state.preview_tiles:
+            if scene_compare_active != state.scene_compare_active:
+                state.scene_compare_active = scene_compare_active
+                state.swipe_enabled = scene_compare_active
+                state.layer_compare_active = False
+                if scene_compare_active and not state.scene_compare_tiles:
                     _refresh_preview_tiles(state)
                 st.rerun()
             selected_preview_mode = st.radio(
                 "Mod comparație",
                 ["Radar brut în tonuri de gri", "Doar apă observată prin SAR"],
                 index=0 if state.preview_mode == "Radar brut în tonuri de gri" else 1,
-                disabled=not state.swipe_enabled,
+                disabled=not state.scene_compare_active,
                 help="Schimbă reprezentarea comparatorului fără a porni analiza finală.",
             )
             if selected_preview_mode != state.preview_mode:
                 state.preview_mode = selected_preview_mode
                 _refresh_preview_tiles(state)
                 st.rerun()
-            if state.swipe_enabled:
+            if state.scene_compare_active:
                 st.caption("Comparatorul vertical este activ pe hartă.")
         else:
             st.markdown(
@@ -356,6 +359,12 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         key="impact_after_scene_select",
     )
     before, after = select_scene_pair(state.scene_candidates, before_id, after_id)
+    selected_pair_changed = (
+        (state.before_scene or {}).get("ee_id") not in {None, before_id}
+        or (state.after_scene or {}).get("ee_id") not in {None, after_id}
+    )
+    if selected_pair_changed and state.scene_compare_active:
+        reset_comparison(state)
     validation = confirm_scene_pair(before, after)
     for error in validation["errors"]:
         st.error(error)
@@ -369,7 +378,9 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         key="compare_scene_pair",
     ):
         apply_scene_pair(state, before, after, False)
+        state.scene_compare_active = True
         state.swipe_enabled = True
+        state.layer_compare_active = False
         _refresh_preview_tiles(state)
         st.rerun()
     if state.swipe_enabled:
@@ -384,6 +395,7 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         confirmation = confirm_scene_pair(before, after, accept_warnings)
         apply_scene_pair(state, before, after, confirmation["confirmed"])
         if confirmation["confirmed"]:
+            reset_comparison(state)
             state.preview_scene_id = ""
             state.preview_scene_tile = ""
             st.rerun()
@@ -494,6 +506,7 @@ def _refresh_preview_tiles(state: ImpactToolState) -> None:
             state.analysis_parameters["minimum_connected_pixels"]
         ),
     )
+    state.scene_compare_tiles = dict(state.preview_tiles)
 
 
 def _load_more_thumbnails(state: ImpactToolState) -> None:

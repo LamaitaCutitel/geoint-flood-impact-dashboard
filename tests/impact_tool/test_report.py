@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.report import (
@@ -11,6 +13,7 @@ from src.impact_tool.report import (
     _metric_label,
     _osm_dynamic_world_summary,
     _report_cache_key,
+    _real_scale_bar,
     _osm_status_table,
     _synthetic_map,
 )
@@ -83,6 +86,15 @@ def test_report_cache_key_changes_with_full_payload(tmp_path) -> None:
     assert len({initial, detailed, osm_changed, dynamic_changed}) == 4
 
 
+def test_report_cache_key_changes_after_analytic_recalculation(tmp_path) -> None:
+    cache = PersistentCache(tmp_path)
+    state = _state()
+    initial = _report_cache_key(cache, state)
+    state.analysis_results["sar"]["metrics"]["sar_new_water_area_km2"] = 4.25
+    recalculated = _report_cache_key(cache, state)
+    assert initial != recalculated
+
+
 def test_report_has_readable_labels_and_osm_completeness() -> None:
     state = _state()
     state.osm_status = {
@@ -135,6 +147,14 @@ def test_synthetic_map_contains_osm_and_works_offline() -> None:
     image = _synthetic_map(state)
     assert image.read(8) == b"\x89PNG\r\n\x1a\n"
     assert len(image.getvalue()) > 10_000
+
+
+def test_map_scale_is_geodetic_and_report_has_no_raw_parameter_dict() -> None:
+    width, label = _real_scale_bar(27.0, 28.0, 45.5)
+    assert 0 < width < 1
+    assert label.endswith(("m", "km"))
+    source = Path("src/impact_tool/report.py").read_text(encoding="utf-8")
+    assert "str(state.analysis_parameters)" not in source
 
 
 def test_synthetic_map_uses_clipped_geometry_for_lines(monkeypatch) -> None:

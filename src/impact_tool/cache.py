@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-CACHE_ROOT = Path("cache")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CACHE_ROOT = Path(os.environ.get("GEOINT_CACHE_DIR", PROJECT_ROOT / "cache")).resolve()
 
 
 @dataclass(frozen=True)
@@ -20,7 +22,7 @@ class CacheResult:
 
 class PersistentCache:
     def __init__(self, root: Path | str = CACHE_ROOT) -> None:
-        self.root = Path(root)
+        self.root = Path(root).expanduser().resolve()
 
     def key(self, namespace: str, *parts: Any) -> str:
         payload = json.dumps(parts, ensure_ascii=True, sort_keys=True, default=str)

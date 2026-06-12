@@ -4,6 +4,7 @@ import base64
 import hashlib
 from io import BytesIO
 import json
+import math
 from typing import Any
 
 import matplotlib
@@ -28,13 +29,14 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from pyproj import Geod
 from shapely.geometry import shape
 
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 
 
-REPORT_VERSION = "3.0"
+REPORT_VERSION = "4.0"
 MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
@@ -71,6 +73,15 @@ def _report_cache_key(cache: PersistentCache, state: ImpactToolState) -> str:
         "osm_metadata": state.osm_status,
         "dynamic_world_dates": dynamic.get("acquisition_dates", {}),
         "dynamic_world_products": dynamic.get("product_types", {}),
+        "sar_metrics": (state.analysis_results.get("sar") or {}).get("metrics", {}),
+        "dynamic_world_status": dynamic.get("status"),
+        "dynamic_world_metrics": dynamic.get("metric_values", {}),
+        "osm_metrics": (state.analysis_results.get("osm_impact") or {}).get(
+            "metrics",
+            {},
+        ),
+        "osm_dynamic_world": state.analysis_results.get("osm_dynamic_world", {}),
+        "timings": state.timings,
         "analysis_mode": state.analysis_mode,
         "report_version": REPORT_VERSION,
     }
@@ -177,12 +188,13 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
         "15. Surse",
         _source_summary(state),
     )
-    _section(story, styles, "16. Anexă tehnică", str(state.analysis_parameters))
+    _section(story, styles, "16. Anexă tehnică", "")
+    story.append(_parameters_table(state))
     _section(
         story,
         styles,
         "17. Durata procesării",
-        f"SAR: {(state.analysis_results.get('sar') or {}).get('duration_seconds', 0)} s.",
+        _timings_summary(state),
     )
     _section(
         story,
@@ -258,6 +270,20 @@ def _metrics_table(metrics: dict[str, Any]) -> Table:
     rows.extend(
         [[_metric_label(key), _format_value(value)] for key, value in metrics.items()]
         or [["Date", "indisponibile"]]
+    )
+    table = Table(rows, repeatRows=1, colWidths=[10 * cm, 5 * cm])
+    table.setStyle(_table_style())
+    return table
+
+
+def _parameters_table(state: ImpactToolState) -> Table:
+    rows = [["Parametru", "Valoare"]]
+    rows.extend(
+        [
+            [_metric_label(str(key)), _format_value(value)]
+            for key, value in state.analysis_parameters.items()
+        ]
+        or [["Parametri", "indisponibili"]]
     )
     table = Table(rows, repeatRows=1, colWidths=[10 * cm, 5 * cm])
     table.setStyle(_table_style())
@@ -400,29 +426,72 @@ def _executive_summary(state: ImpactToolState) -> str:
 
 def _dynamic_world_summary(state: ImpactToolState) -> str:
     result = state.analysis_results.get("dynamic_world")
+    if not result:
+        return "Dynamic World nu a fost disponibil pentru această analiză."
+    periods = result.get("periods", {})
+    dates = result.get("acquisition_dates", {})
+    coverage = result.get("coverage", {})
+    product_types = result.get("product_types", {})
     return (
-        f"Tranziții către apă: {result.get('transitions', {})}."
-        if result
-        else "Dynamic World nu a fost disponibil pentru această analiză."
+        f"Status: {result.get('status', 'indisponibil')}. "
+        f"BEFORE: perioada {periods.get('before', 'indisponibilă')}, "
+        f"data efectivă {dates.get('before', 'indisponibilă')}, "
+        f"acoperire {float(coverage.get('before') or 0) * 100:.1f}%, "
+        f"produs {product_types.get('before', 'indisponibil')}. "
+        f"AFTER: perioada {periods.get('after', 'indisponibilă')}, "
+        f"data efectivă {dates.get('after', 'indisponibilă')}, "
+        f"acoperire {float(coverage.get('after') or 0) * 100:.1f}%, "
+        f"produs {product_types.get('after', 'indisponibil')}."
     )
 
 
 def _correlation_summary(state: ImpactToolState) -> str:
     result = state.analysis_results.get("dynamic_world")
+    if not result:
+        return "Corelarea multisursă nu este disponibilă."
+    overlap = _dynamic_metric_value(
+        result,
+        "sar_dynamic_world_new_water_overlap_area_km2",
+    )
+    only_sar = _dynamic_metric_value(result, "new_water_only_sar_area_km2")
+    only_dynamic = _dynamic_metric_value(
+        result,
+        "new_water_only_dynamic_world_area_km2",
+    )
     return (
-        f"Indicatori de corelare: {result.get('metrics', {})}."
-        if result
-        else "Corelarea multisursă nu este disponibilă."
+        f"Suprapunere între metode: {overlap:.3f} km². "
+        f"Apă nouă doar SAR: {only_sar:.3f} km². "
+        f"Apă nouă doar Dynamic World: {only_dynamic:.3f} km²."
     )
 
 
 def _osm_summary(state: ImpactToolState) -> str:
     impact = state.analysis_results.get("osm_impact")
+    if not impact:
+        return "Datele OSM sunt indisponibile sau parțiale."
+    metrics = impact.get("metrics", {})
     return (
-        f"Elemente potențial expuse: {impact.get('metrics', {})}."
-        if impact
-        else "Datele OSM sunt indisponibile sau parțiale."
+        f"Clădiri intersectate direct: {int(metrics.get('buildings_direct', 0))}; "
+        f"clădiri în buffer: {int(metrics.get('buildings_buffer', 0))}; "
+        f"drumuri intersectate direct: {float(metrics.get('roads_direct_km', 0)):.3f} km; "
+        f"căi ferate intersectate direct: "
+        f"{float(metrics.get('railways_direct_km', 0)):.3f} km; "
+        f"obiective critice intersectate direct: "
+        f"{int(metrics.get('critical_direct', 0))}."
     )
+
+
+def _timings_summary(state: ImpactToolState) -> str:
+    if not state.timings:
+        duration = (state.analysis_results.get("sar") or {}).get(
+            "duration_seconds",
+            0,
+        )
+        return f"SAR: {float(duration):.3f} s."
+    return "; ".join(
+        f"{stage}: {float(seconds):.3f} s"
+        for stage, seconds in state.timings.items()
+    ) + "."
 
 
 def _source_summary(state: ImpactToolState) -> str:
@@ -486,11 +555,16 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
     )
     x_min, x_max = axis.get_xlim()
     y_min, y_max = axis.get_ylim()
-    scale_width = (x_max - x_min) * 0.12
+    scale_width, scale_label = _real_scale_bar(x_min, x_max, (y_min + y_max) / 2)
     scale_y = y_min + (y_max - y_min) * 0.06
     scale_x = x_min + (x_max - x_min) * 0.05
     axis.plot([scale_x, scale_x + scale_width], [scale_y, scale_y], color="#0f172a", linewidth=3)
-    axis.text(scale_x, scale_y + (y_max - y_min) * 0.02, "scară orientativă", fontsize=7)
+    axis.text(
+        scale_x,
+        scale_y + (y_max - y_min) * 0.02,
+        scale_label,
+        fontsize=7,
+    )
     axis.legend(
         handles=[
             Patch(facecolor="#06b6d4", alpha=0.6, label="Apă nouă SAR"),
@@ -510,6 +584,32 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
     plt.close(figure)
     output.seek(0)
     return output
+
+
+def _real_scale_bar(
+    x_min: float,
+    x_max: float,
+    latitude: float,
+) -> tuple[float, str]:
+    span = max(0.0, x_max - x_min)
+    if span == 0:
+        return 0.0, "scară indisponibilă"
+    _, _, total_meters = Geod(ellps="WGS84").inv(
+        x_min,
+        latitude,
+        x_max,
+        latitude,
+    )
+    target_max = max(1.0, total_meters * 0.2)
+    magnitude = 10 ** math.floor(math.log10(target_max))
+    target = max(
+        candidate * magnitude
+        for candidate in (1, 2, 5)
+        if candidate * magnitude <= target_max
+    )
+    width = span * target / total_meters
+    label = f"{target / 1000:g} km" if target >= 1000 else f"{target:g} m"
+    return width, label
 
 
 def _plot_geometry(

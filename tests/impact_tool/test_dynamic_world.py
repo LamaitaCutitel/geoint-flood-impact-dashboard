@@ -4,12 +4,83 @@ from pathlib import Path
 
 from src.impact_tool.dynamic_world import (
     TRANSITION_CLASSES,
+    _combined_metric_statuses,
+    _mandatory_tiles_ready,
     _metric_statuses,
+    _needs_mosaic,
     _tile_status,
     correlate_osm_dynamic_world,
     dynamic_world_layer_definitions,
     scene_day_period,
 )
+
+
+def test_coverage_below_85_percent_uses_mosaic() -> None:
+    assert _needs_mosaic(0.8499)
+    assert not _needs_mosaic(0.85)
+
+
+def test_green_status_requires_all_mandatory_tiles() -> None:
+    tiles = {
+        key: {"status": "reușit", "url": f"https://tiles/{key}"}
+        for key in (
+            "dynamic_world_before",
+            "dynamic_world_after",
+            "dynamic_world_new_water",
+        )
+    }
+    assert _mandatory_tiles_ready(tiles, tuple(tiles))
+    tiles["dynamic_world_after"]["url"] = None
+    assert not _mandatory_tiles_ready(tiles, tuple(tiles))
+
+
+def test_combined_metrics_use_one_reduce_region() -> None:
+    calls = []
+
+    class Result:
+        def getInfo(self):
+            return {"metric_0": 1_000_000, "metric_1": 2_000_000}
+
+    class Combined:
+        def reduceRegion(self, **kwargs):
+            calls.append(kwargs)
+            return Result()
+
+    class Mask:
+        def multiply(self, other):
+            return self
+
+        def rename(self, name):
+            return self
+
+    class Image:
+        @staticmethod
+        def pixelArea():
+            return object()
+
+        @staticmethod
+        def cat(*images):
+            return Combined()
+
+    class Reducer:
+        @staticmethod
+        def sum():
+            return "sum"
+
+    class Ee:
+        pass
+
+    Ee.Image = Image
+    Ee.Reducer = Reducer
+    result = _combined_metric_statuses(
+        Ee,
+        {"first": Mask(), "second": Mask()},
+        object(),
+        10,
+    )
+    assert len(calls) == 1
+    assert result["first"]["value"] == 1.0
+    assert result["second"]["value"] == 2.0
 
 
 def test_scene_period_uses_robust_window_around_acquisition() -> None:
@@ -116,13 +187,8 @@ def test_osm_dynamic_world_correlation_uses_before_after_classes() -> None:
         def __init__(self, label):
             self.label = label
 
-        def sampleRegions(self, collection, **kwargs):
+        def reduceRegions(self, collection, **kwargs):
             return SampleResult(collection, self.label)
-
-    class Geometry:
-        @staticmethod
-        def Point(coordinates):
-            return coordinates
 
     class FakeEe:
         @staticmethod
@@ -133,7 +199,13 @@ def test_osm_dynamic_world_correlation_uses_before_after_classes() -> None:
         def FeatureCollection(features):
             return features
 
-    FakeEe.Geometry = Geometry
+    class Reducer:
+        @staticmethod
+        def mode():
+            return "mode"
+
+    FakeEe.Geometry = staticmethod(lambda geometry: geometry)
+    FakeEe.Reducer = Reducer
 
     result = correlate_osm_dynamic_world(
         FakeEe(),

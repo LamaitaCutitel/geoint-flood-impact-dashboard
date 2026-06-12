@@ -8,6 +8,7 @@ from src.impact_tool.osm import (
     OSM_LIMITS,
     _append_relation_features,
     _critical_layer,
+    _deduplicate_layer_features,
     build_category_query,
     deduplicate_elements,
     filter_osm_layers_to_geometry,
@@ -351,6 +352,43 @@ def test_osm_relation_multipolygon_with_hole_is_parsed() -> None:
     assert len(geometry["coordinates"]) == 2
 
 
+def test_relation_feature_replaces_member_way_and_duplicate_marker() -> None:
+    layers = {
+        "osm_critical": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"osm_type": "way", "osm_id": 20},
+                    "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+                },
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "osm_type": "relation",
+                        "osm_id": 30,
+                        "member_way_ids": [20],
+                    },
+                    "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+                },
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "osm_type": "relation",
+                        "osm_id": 30,
+                        "member_way_ids": [20],
+                    },
+                    "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+                },
+            ],
+        }
+    }
+    _deduplicate_layer_features(layers)
+    features = layers["osm_critical"]["features"]
+    assert len(features) == 1
+    assert features[0]["properties"]["osm_type"] == "relation"
+
+
 def test_road_crossing_aoi_is_kept_without_internal_vertex() -> None:
     layers = {
         "osm_roads": {
@@ -453,6 +491,40 @@ def test_analysis_features_are_separate_from_limited_display_features() -> None:
     assert len(buildings["analysis_features"]) == 901
     assert len(buildings["display_features"]) <= 751
     assert buildings["display_features"][0]["properties"]["status"] == STATUS_DIRECT
+    distances = [
+        feature["properties"]["distance_to_water_m"]
+        for feature in buildings["display_features"][1:]
+    ]
+    assert distances == sorted(distances)
+
+
+def test_linear_features_keep_direct_buffer_and_context_geometries() -> None:
+    water = {
+        "type": "Polygon",
+        "coordinates": [[[27.49, 45.49], [27.51, 45.49], [27.51, 45.51], [27.49, 45.51], [27.49, 45.49]]],
+    }
+    road = {
+        "type": "Feature",
+        "properties": {"osm_type": "way", "osm_id": 1, "highway": "primary"},
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[27.47, 45.5], [27.53, 45.5]],
+        },
+    }
+    result = classify_osm_impact(
+        {"osm_roads": {"type": "FeatureCollection", "features": [road]}},
+        water,
+        250,
+    )
+    feature = result["layers"]["osm_roads"]["features"][0]
+    assert feature["direct_geometry"]
+    assert feature["buffer_geometry"]
+    assert feature["context_geometry"]
+    statuses = {
+        item["properties"]["status"]
+        for item in result["layers"]["osm_roads"]["display_features"]
+    }
+    assert statuses == {"Intersectat direct", "În buffer de avertizare", "Context"}
 
 
 def test_buffer_limits_and_symbols() -> None:

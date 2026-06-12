@@ -61,6 +61,11 @@ class ImpactToolState:
     preview_mode: str = "Radar brut în tonuri de gri"
     preview_tiles: dict[str, str] = field(default_factory=dict)
     swipe_enabled: bool = False
+    scene_compare_active: bool = False
+    scene_compare_tiles: dict[str, str] = field(default_factory=dict)
+    layer_compare_active: bool = False
+    layer_compare_left_id: str = "sar_water_before"
+    layer_compare_right_id: str = "sar_water_after"
     analysis_complete: bool = False
     buffer_meters: int = BUFFER_DEFAULT_METERS
     active_layers: list[str] = field(
@@ -82,6 +87,7 @@ class ImpactToolState:
     analysis_progress: int = 0
     analysis_stage: str = "Pregătit pentru analiză"
     osm_status: dict = field(default_factory=dict)
+    osm_cache_refs: dict[str, str] = field(default_factory=dict)
     osm_load_requested: bool = False
     osm_retry_category: str = ""
     osm_filters: dict = field(

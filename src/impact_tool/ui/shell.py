@@ -87,7 +87,19 @@ def render_app(st_module: Any | None = None) -> None:
             mode=state.analysis_mode,
         )
         if success:
-            status_box.success("Analiza raster și încărcarea OSM au fost finalizate.")
+            workflow_status = state.analysis_results.get("workflow_status")
+            if workflow_status == "osm_complet":
+                status_box.success("Analiza SAR și încărcarea OSM au fost finalizate.")
+            elif workflow_status == "osm_parțial":
+                status_box.warning(
+                    "Analiza SAR a reușit, iar datele OSM sunt disponibile parțial."
+                )
+            elif workflow_status in {"osm_indisponibil", "impact_osm_indisponibil"}:
+                status_box.warning(
+                    "Analiza SAR a reușit, dar impactul OSM este indisponibil."
+                )
+            else:
+                status_box.success("Analiza SAR a fost finalizată.")
         else:
             status_box.error(state.analysis_error or "Analiza nu a putut fi finalizată.")
 
@@ -138,7 +150,19 @@ def render_app(st_module: Any | None = None) -> None:
             counties_geojson,
             state.county_name,
             aoi_geometry=state.aoi_geometry,
-            preview_tiles=state.preview_tiles if state.swipe_enabled else {},
+            preview_tiles=(
+                state.scene_compare_tiles
+                if state.scene_compare_active and not state.layer_compare_active
+                else {}
+            ),
+            layer_compare_layers=(
+                _comparison_layers(state) if state.analysis_complete else {}
+            ),
+            layer_compare_left_id=state.layer_compare_left_id,
+            layer_compare_right_id=state.layer_compare_right_id,
+            layer_compare_active=(
+                state.layer_compare_active and not state.scene_compare_active
+            ),
             preview_scene_tile=(
                 state.preview_scene_tile if not state.analysis_complete else ""
             ),
@@ -174,7 +198,11 @@ def _map_render_key(state: Any, focus_location: list[float] | None = None) -> st
         "preview_scene": state.preview_scene_id,
         "preview_tile": state.preview_scene_tile,
         "preview_mode": state.preview_mode,
-        "swipe": state.swipe_enabled,
+        "scene_compare": state.scene_compare_active,
+        "scene_compare_tiles": state.scene_compare_tiles,
+        "layer_compare": state.layer_compare_active,
+        "layer_compare_left": state.layer_compare_left_id,
+        "layer_compare_right": state.layer_compare_right_id,
         "osm_filters": state.osm_filters,
         "critical_mode": state.critical_mode,
         "presentation_mode": state.presentation_mode,
@@ -199,6 +227,38 @@ def _analysis_layers(state: Any) -> list[dict[str, Any]]:
         for layer in layers
         if layer["id"] in state.active_layers
     ]
+
+
+def _comparison_layers(state: Any) -> dict[str, dict[str, str]]:
+    definitions: list[dict[str, Any]] = []
+    if state.analysis_results.get("sar"):
+        definitions.extend(sar_layer_definitions(state.analysis_results["sar"]))
+    if state.analysis_results.get("dynamic_world"):
+        definitions.extend(
+            dynamic_world_layer_definitions(state.analysis_results["dynamic_world"])
+        )
+    layers = {
+        item["id"]: {
+            "name": item["name"],
+            "url": item.get("tile_url") or "",
+            "attribution": "Google Earth Engine",
+        }
+        for item in definitions
+    }
+    layers["basemap_satellite"] = {
+        "name": "Basemap satelit",
+        "url": (
+            "https://server.arcgisonline.com/ArcGIS/rest/services/"
+            "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        ),
+        "attribution": "Esri, Maxar, Earthstar Geographics",
+    }
+    layers["basemap_osm_light"] = {
+        "name": "Basemap OSM Light",
+        "url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+        "attribution": "OpenStreetMap contributors, CARTO",
+    }
+    return layers
 
 
 def _visible_osm_layers(state: Any) -> dict[str, dict[str, Any]]:

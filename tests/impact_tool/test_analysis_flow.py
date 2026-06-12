@@ -79,6 +79,46 @@ def test_detailed_analysis_runs_dynamic_world(monkeypatch) -> None:
     assert "Dynamic World" in state.timings
 
 
+def test_failed_osm_does_not_mark_workflow_complete(monkeypatch) -> None:
+    state = _analysis_state()
+    dynamic_calls: list[str] = []
+    _mock_raster_dependencies(monkeypatch, dynamic_calls)
+    monkeypatch.setattr(analysis, "execute_osm_loading", lambda *args, **kwargs: False)
+
+    assert analysis.execute_analysis(state, mode="rapid")
+    assert state.analysis_results["sar_status"] == "reușit"
+    assert state.analysis_results["workflow_status"] == "osm_indisponibil"
+
+
+def test_manual_dynamic_world_invalidates_pdf_and_recalculates_correlation(
+    monkeypatch,
+) -> None:
+    state = _analysis_state()
+    state.analysis_results = {
+        "sar": {"products": {"sar_new_water": "water"}},
+        "osm_impact": {"layers": {}},
+    }
+    state.report_bytes = b"old"
+    state.report_filename = "old.pdf"
+    monkeypatch.setattr(analysis, "initialize_earth_engine", lambda: FakeGeeStatus())
+    monkeypatch.setattr(analysis, "build_aoi_from_geometry", lambda *args: "aoi")
+    monkeypatch.setattr(
+        analysis,
+        "run_dynamic_world_analysis",
+        lambda *args: {"status": "reușit", "metrics": {}},
+    )
+    monkeypatch.setattr(
+        analysis,
+        "correlate_osm_dynamic_world",
+        lambda *args: {"status": "reușit", "rows": [{"name": "Spital"}]},
+    )
+
+    assert analysis.execute_dynamic_world(state)
+    assert state.report_bytes is None
+    assert state.report_filename == ""
+    assert state.analysis_results["osm_dynamic_world"]["rows"]
+
+
 def test_osm_categories_follow_analysis_mode(monkeypatch) -> None:
     state = ImpactToolState(
         analysis_complete=True,
@@ -107,7 +147,14 @@ def test_osm_categories_follow_analysis_mode(monkeypatch) -> None:
         analysis,
         "load_osm_categories",
         lambda **kwargs: categories.append(kwargs["categories"])
-        or {"layers": {}, "status": {}, "attribution": "OSM"},
+        or {
+            "layers": {},
+            "status": {
+                category: {"ok": True, "count": 0}
+                for category in kwargs["categories"]
+            },
+            "attribution": "OSM",
+        },
     )
     monkeypatch.setattr(analysis, "recalculate_osm_impact", lambda *args: True)
 
@@ -146,7 +193,14 @@ def test_osm_query_area_stays_at_1000_m_when_analytic_buffer_changes(
     monkeypatch.setattr(
         analysis,
         "load_osm_categories",
-        lambda **kwargs: {"layers": {}, "status": {}, "attribution": "OSM"},
+        lambda **kwargs: {
+            "layers": {},
+            "status": {
+                category: {"ok": True, "count": 0}
+                for category in kwargs["categories"]
+            },
+            "attribution": "OSM",
+        },
     )
     monkeypatch.setattr(analysis, "recalculate_osm_impact", lambda *args: True)
 

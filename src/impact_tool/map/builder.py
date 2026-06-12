@@ -14,7 +14,7 @@ from src.impact_tool.map.layers import (
     add_tile_layers,
 )
 from src.impact_tool.map.legend import ImpactLegend, legend_entries
-from src.impact_tool.map.swipe import SarSwipeControl
+from src.impact_tool.map.swipe import LayerCompareControl, SarSwipeControl
 from src.impact_tool.map.tools import FocusLocation, NavigationControl
 
 
@@ -54,6 +54,10 @@ def build_shell_map(
     aoi_geometry: dict[str, Any] | None = None,
     draw_enabled: bool = True,
     preview_tiles: dict[str, str] | None = None,
+    layer_compare_layers: dict[str, dict[str, str]] | None = None,
+    layer_compare_left_id: str = "",
+    layer_compare_right_id: str = "",
+    layer_compare_active: bool = False,
     preview_scene_tile: str | None = None,
     analysis_layers: list[dict[str, Any]] | None = None,
     buffer_geometry: dict[str, Any] | None = None,
@@ -165,6 +169,13 @@ def build_shell_map(
     ).add_to(folium_map)
     if preview_tiles and preview_tiles.get("before") and preview_tiles.get("after"):
         SarSwipeControl(preview_tiles["before"], preview_tiles["after"]).add_to(folium_map)
+    elif layer_compare_layers:
+        LayerCompareControl(
+            layer_compare_layers,
+            layer_compare_left_id,
+            layer_compare_right_id,
+            layer_compare_active,
+        ).add_to(folium_map)
     if focus_location and len(focus_location) == 2:
         latitude, longitude = focus_location
         FocusLocation(latitude, longitude).add_to(folium_map)

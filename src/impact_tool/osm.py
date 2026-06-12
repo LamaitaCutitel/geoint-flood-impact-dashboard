@@ -82,6 +82,7 @@ def load_osm_categories(
     if not analysis_complete:
         raise RuntimeError("Datele OSM pot fi încărcate numai după analiza SAR.")
     layers: dict[str, dict[str, Any]] = {}
+    cache_refs: dict[str, str] = {}
     status: dict[str, dict[str, Any]] = {}
     geometry_hash = osm_geometry_hash(geometry)
     for category in categories:
@@ -102,9 +103,18 @@ def load_osm_categories(
                 relation_features = parsed["osm_critical"].get("features", [])
                 parsed["osm_critical"] = _critical_layer(elements)
                 parsed["osm_critical"]["features"].extend(relation_features)
+            _deduplicate_layer_features(parsed)
             filtered = filter_osm_layers_to_geometry(parsed, geometry)
             layer_id = LAYER_BY_CATEGORY[category]
             layers[layer_id] = filtered[layer_id]
+            layer_cache_key = cache.key(
+                "osm-layers",
+                geometry_hash,
+                category,
+                _query_version(analysis_mode, category),
+            )
+            cache.set("osm-layers", layer_cache_key, layers[layer_id])
+            cache_refs[layer_id] = layer_cache_key
             status[category] = {
                 "ok": True,
                 "count": len(layers[layer_id].get("features", [])),
@@ -131,7 +141,12 @@ def load_osm_categories(
             )
         except Exception as exc:
             status[category] = {"ok": False, "count": 0, "error": str(exc)}
-    return {"layers": layers, "status": status, "attribution": OSM_ATTRIBUTION}
+    return {
+        "layers": layers,
+        "status": status,
+        "cache_refs": cache_refs,
+        "attribution": OSM_ATTRIBUTION,
+    }
 
 
 def retry_osm_category(**kwargs: Any) -> dict[str, Any]:
@@ -217,6 +232,44 @@ def deduplicate_elements(elements: list[dict[str, Any]]) -> list[dict[str, Any]]
         key = (str(element.get("type", "")), element.get("id"))
         unique[key] = element
     return list(unique.values())
+
+
+def load_cached_osm_layers(
+    cache: PersistentCache,
+    cache_refs: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    layers: dict[str, dict[str, Any]] = {}
+    for layer_id, key in cache_refs.items():
+        cached = cache.get("osm-layers", key)
+        if cached.hit and isinstance(cached.value, dict):
+            layers[layer_id] = cached.value
+    return layers
+
+
+def _deduplicate_layer_features(
+    layers: dict[str, dict[str, Any]],
+) -> None:
+    for layer in layers.values():
+        features = layer.get("features", [])
+        relation_members = {
+            member_id
+            for feature in features
+            if feature.get("properties", {}).get("osm_type") == "relation"
+            for member_id in feature.get("properties", {}).get("member_way_ids", [])
+        }
+        unique: dict[tuple[str, Any], dict[str, Any]] = {}
+        anonymous: list[dict[str, Any]] = []
+        for feature in features:
+            properties = feature.get("properties", {})
+            osm_type = properties.get("osm_type")
+            osm_id = properties.get("osm_id")
+            if osm_type == "way" and osm_id in relation_members:
+                continue
+            if osm_type and osm_id is not None:
+                unique[(str(osm_type), osm_id)] = feature
+            else:
+                anonymous.append(feature)
+        layer["features"] = list(unique.values()) + anonymous
 
 
 def osm_geometry_hash(geometry: Any) -> str:
@@ -545,6 +598,11 @@ def _append_relation_features(
                 "tags": tags,
                 "osm_type": "relation",
                 "osm_id": relation.get("id"),
+                "member_way_ids": [
+                    member.get("ref")
+                    for member in relation.get("members", [])
+                    if member.get("type") == "way"
+                ],
             },
         }
         if tags.get("building"):

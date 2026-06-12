@@ -107,8 +107,14 @@ def run_dynamic_world_analysis(
         class_name: before.eq(class_id).And(after.eq(0)).selfMask().clip(aoi)
         for class_id, class_name in TRANSITION_CLASSES.items()
     }
-    metrics = _metric_statuses(ee, metric_masks, aoi, scale_meters)
-    transitions = _metric_statuses(ee, transition_masks, aoi, scale_meters)
+    combined_statuses = _combined_metric_statuses(
+        ee,
+        {**metric_masks, **transition_masks},
+        aoi,
+        scale_meters,
+    )
+    metrics = {key: combined_statuses[key] for key in metric_masks}
+    transitions = {key: combined_statuses[key] for key in transition_masks}
     metric_values = _successful_values(metrics)
     transition_values = _successful_values(transitions)
 
@@ -134,12 +140,17 @@ def run_dynamic_world_analysis(
         key: _tile_status(image, name)
         for key, (image, name) in tile_images.items()
     }
-    available_tiles = sum(item["status"] == "reușit" for item in tiles.values())
-    result_status = "reușit" if available_tiles else "tile indisponibil"
+    mandatory_tile_ids = (
+        "dynamic_world_before",
+        "dynamic_world_after",
+        "dynamic_world_new_water",
+    )
+    mandatory_tiles_ready = _mandatory_tiles_ready(tiles, mandatory_tile_ids)
+    result_status = "reușit" if mandatory_tiles_ready else "tile indisponibil"
     result_error = (
         None
-        if available_tiles
-        else "Google Earth Engine nu a furnizat URL-uri pentru tile-urile Dynamic World."
+        if mandatory_tiles_ready
+        else "Lipsesc unul sau mai multe tile-uri obligatorii Dynamic World."
     )
     overlap = metric_values.get(
         "sar_dynamic_world_new_water_overlap_area_km2",
@@ -241,7 +252,7 @@ def _select_observation(
     selected = ee.Image(scored.first())
     coverage = float(ee.Number(selected.get("aoi_coverage")).getInfo() or 0)
     product_type = "observație individuală"
-    if coverage <= 0:
+    if _needs_mosaic(coverage):
         selected = dynamic_world_mode(ee, aoi, period[0], period[1])
         product_type = "mozaic fallback"
         acquisition_date = f"{period[0]} - {period[1]}"
@@ -255,6 +266,21 @@ def _select_observation(
         "product_type": product_type,
         "search_period": period,
     }
+
+
+def _needs_mosaic(coverage: float) -> bool:
+    return float(coverage) < 0.85
+
+
+def _mandatory_tiles_ready(
+    tiles: dict[str, dict[str, Any]],
+    mandatory_ids: tuple[str, ...],
+) -> bool:
+    return all(
+        tiles.get(key, {}).get("status") == "reușit"
+        and bool(tiles.get(key, {}).get("url"))
+        for key in mandatory_ids
+    )
 
 
 def _metric_statuses(
@@ -271,6 +297,49 @@ def _metric_statuses(
         except Exception as exc:
             result[key] = {"value": None, "status": "eroare", "error": str(exc)}
     return result
+
+
+def _combined_metric_statuses(
+    ee: Any,
+    masks: dict[str, Any],
+    aoi: Any,
+    scale_meters: int,
+) -> dict[str, dict[str, Any]]:
+    if not masks:
+        return {}
+    band_names = {
+        key: f"metric_{index}"
+        for index, key in enumerate(masks)
+    }
+    try:
+        bands = [
+            mask.multiply(ee.Image.pixelArea()).rename(band_names[key])
+            for key, mask in masks.items()
+        ]
+        image = ee.Image.cat(*bands)
+        values = image.reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=aoi,
+            scale=scale_meters,
+            maxPixels=1e9,
+            bestEffort=True,
+        ).getInfo() or {}
+        return {
+            key: {
+                "value": round(
+                    float(values.get(band_name) or 0) / 1_000_000,
+                    4,
+                ),
+                "status": "reușit",
+                "error": None,
+            }
+            for key, band_name in band_names.items()
+        }
+    except Exception as exc:
+        return {
+            key: {"value": None, "status": "eroare", "error": str(exc)}
+            for key in masks
+        }
 
 
 def _strict_mask_area_km2(
@@ -343,16 +412,17 @@ def correlate_osm_dynamic_world(
                 "În buffer de avertizare",
             }:
                 continue
-            point = shape(feature.get("geometry") or {}).representative_point()
+            geometry, sampling_method = _correlation_geometry(feature, layer_id)
             feature_key = f"{layer_id}:{index}"
             metadata[feature_key] = {
                 "feature_key": feature_key,
                 "name": properties.get("name") or feature_key,
                 "status": properties.get("status"),
+                "sampling_method": sampling_method,
             }
             features.append(
                 ee.Feature(
-                    ee.Geometry.Point([point.x, point.y]),
+                    ee.Geometry(geometry),
                     {"feature_key": feature_key},
                 )
             )
@@ -364,17 +434,15 @@ def correlate_osm_dynamic_world(
         return {"status": "reușit", "error": None, "rows": []}
     try:
         collection = ee.FeatureCollection(features)
-        before_info = before.sampleRegions(
+        before_info = before.reduceRegions(
             collection=collection,
-            properties=["feature_key"],
+            reducer=ee.Reducer.mode(),
             scale=scale_meters,
-            geometries=False,
         ).getInfo()
-        after_info = after.sampleRegions(
+        after_info = after.reduceRegions(
             collection=collection,
-            properties=["feature_key"],
+            reducer=ee.Reducer.mode(),
             scale=scale_meters,
-            geometries=False,
         ).getInfo()
         before_labels = _sample_labels(before_info)
         after_labels = _sample_labels(after_info)
@@ -400,10 +468,32 @@ def _sample_labels(payload: dict[str, Any]) -> dict[str, int]:
     for feature in payload.get("features", []):
         properties = feature.get("properties", {})
         key = properties.get("feature_key")
-        label = properties.get("label")
+        label = properties.get("label", properties.get("mode"))
         if key is not None and label is not None:
             result[str(key)] = int(label)
     return result
+
+
+def _correlation_geometry(
+    feature: dict[str, Any],
+    layer_id: str,
+) -> tuple[dict[str, Any], str]:
+    geometry = feature.get("geometry") or {}
+    if layer_id == "osm_buildings":
+        return geometry, "clasă dominantă pe suprafață"
+    if layer_id in {"osm_roads", "osm_railways"}:
+        affected = (
+            feature.get("direct_geometry")
+            or feature.get("buffer_geometry")
+            or feature.get("clipped_geometry")
+            or geometry
+        )
+        return affected, "eșantionare pe segmentul afectat"
+    point = shape(geometry).representative_point()
+    return (
+        {"type": "Point", "coordinates": [point.x, point.y]},
+        "punct reprezentativ",
+    )
 
 
 def dynamic_world_layer_definitions(result: dict[str, Any]) -> list[dict[str, Any]]:

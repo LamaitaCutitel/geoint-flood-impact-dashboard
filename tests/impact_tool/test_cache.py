@@ -4,10 +4,18 @@ import json
 import time
 
 from src.impact_tool.cache import (
+    CACHE_ROOT,
     PersistentCache,
     invalidation_namespaces,
     scene_cache_key,
 )
+
+
+def test_default_cache_root_is_absolute_and_shared_with_prewarm() -> None:
+    from scripts import prewarm_galati_cache
+
+    assert CACHE_ROOT.is_absolute()
+    assert PersistentCache().root == prewarm_galati_cache.PersistentCache().root
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.state import update_buffer
 

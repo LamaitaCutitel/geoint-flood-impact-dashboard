@@ -206,11 +206,33 @@ def test_county_change_clears_aoi_scenes_and_results():
 def test_individual_reset_functions_are_scoped():
     state = _state()
     state.before_scene = {"id": "before"}
+    state.scene_candidates = [{"ee_id": "old"}]
+    state.scene_query = {"start_date": "2024-01-01"}
+    state.scene_errors = ["old"]
+    state.scene_warnings = ["old"]
+    state.swipe_enabled = True
+    state.preview_tiles = {"before": "tile"}
+    state.scene_compare_active = True
+    state.scene_compare_tiles = {"before": "tile"}
+    state.layer_compare_active = True
+    state.report_bytes = b"pdf"
+    state.report_filename = "old.pdf"
     state.analysis_results = {"result": True}
     state.analysis_complete = True
 
     reset_scene_selection(state)
     assert state.before_scene is None
+    assert state.scene_candidates == []
+    assert state.scene_query == {}
+    assert state.scene_errors == []
+    assert state.scene_warnings == []
+    assert state.swipe_enabled is False
+    assert state.preview_tiles == {}
+    assert state.scene_compare_active is False
+    assert state.scene_compare_tiles == {}
+    assert state.layer_compare_active is False
+    assert state.report_bytes is None
+    assert state.report_filename == ""
     assert state.analysis_results == {"result": True}
 
     reset_analysis_results(state)

@@ -6,12 +6,14 @@ from typing import Any
 from pyproj import Transformer
 from shapely.geometry import mapping, shape
 from shapely.ops import transform
+from shapely.strtree import STRtree
 
 
 STATUS_DIRECT = "Intersectat direct"
 STATUS_BUFFER = "În buffer de avertizare"
 STATUS_UNEXPOSED = "Neexpus"
 STATUS_REFERENCE = "Referință"
+STATUS_CONTEXT = "Context"
 REFERENCE_BUILDING_LIMIT = 750
 
 SYMBOLS = {
@@ -85,12 +87,27 @@ def classify_osm_impact(
     }
     for layer_id, collection in layers.items():
         features = []
-        for feature in collection.get("features", []):
-            source_geometry = shape(feature["geometry"])
-            projected = project(source_geometry)
-            if projected.intersects(water):
+        source_features = collection.get("features", [])
+        projected_geometries = [
+            project(shape(feature["geometry"])) for feature in source_features
+        ]
+        spatial_index = STRtree(projected_geometries) if projected_geometries else None
+        direct_candidates = _query_indices(
+            spatial_index,
+            projected_geometries,
+            water,
+        )
+        warning_candidates = _query_indices(
+            spatial_index,
+            projected_geometries,
+            warning_area,
+        )
+        for index, (feature, projected) in enumerate(
+            zip(source_features, projected_geometries)
+        ):
+            if index in direct_candidates and projected.intersects(water):
                 status = STATUS_DIRECT
-            elif projected.intersects(warning_area):
+            elif index in warning_candidates and projected.intersects(warning_area):
                 status = STATUS_BUFFER
             elif layer_id == "osm_buildings" and projected.intersects(reference_area):
                 status = STATUS_REFERENCE
@@ -108,6 +125,9 @@ def classify_osm_impact(
                 layer_id,
             )
             clipped = projected.intersection(warning_area)
+            direct_geometry = projected.intersection(water)
+            buffer_geometry = projected.intersection(buffer_only)
+            context_geometry = projected.difference(warning_area)
             features.append(
                 {
                     **feature,
@@ -115,6 +135,21 @@ def classify_osm_impact(
                     "original_geometry": feature["geometry"],
                     "clipped_geometry": (
                         mapping(unproject(clipped)) if not clipped.is_empty else None
+                    ),
+                    "direct_geometry": (
+                        mapping(unproject(direct_geometry))
+                        if not direct_geometry.is_empty
+                        else None
+                    ),
+                    "buffer_geometry": (
+                        mapping(unproject(buffer_geometry))
+                        if not buffer_geometry.is_empty
+                        else None
+                    ),
+                    "context_geometry": (
+                        mapping(unproject(context_geometry))
+                        if not context_geometry.is_empty
+                        else None
                     ),
                 }
             )
@@ -206,7 +241,10 @@ def _attach_display_features(
             in {STATUS_DIRECT, STATUS_BUFFER}
         ]
         if layer_id != "osm_buildings":
-            collection["display_features"] = affected
+            if layer_id in {"osm_roads", "osm_railways"}:
+                collection["display_features"] = _linear_display_features(affected)
+            else:
+                collection["display_features"] = affected
             continue
 
         affected_geometries = [
@@ -238,9 +276,62 @@ def _attach_display_features(
                     },
                 }
             )
-            if len(references) >= REFERENCE_BUILDING_LIMIT:
-                break
-        collection["display_features"] = affected + references
+        references.sort(
+            key=lambda feature: feature.get("properties", {}).get(
+                "distance_to_water_m",
+                float("inf"),
+            )
+        )
+        collection["display_features"] = affected + references[:REFERENCE_BUILDING_LIMIT]
+
+
+def _query_indices(
+    tree: STRtree | None,
+    geometries: list[Any],
+    query_geometry: Any,
+) -> set[int]:
+    if tree is None:
+        return set()
+    matches = tree.query(query_geometry)
+    if hasattr(matches, "tolist"):
+        matches = matches.tolist()
+    if not matches:
+        return set()
+    if isinstance(matches[0], int):
+        return {int(index) for index in matches}
+    index_by_identity = {id(geometry): index for index, geometry in enumerate(geometries)}
+    return {
+        index_by_identity[id(geometry)]
+        for geometry in matches
+        if id(geometry) in index_by_identity
+    }
+
+
+def _linear_display_features(
+    affected: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    geometry_statuses = (
+        ("direct_geometry", STATUS_DIRECT),
+        ("buffer_geometry", STATUS_BUFFER),
+        ("context_geometry", STATUS_CONTEXT),
+    )
+    for feature in affected:
+        for geometry_key, status in geometry_statuses:
+            geometry = feature.get(geometry_key)
+            if not geometry:
+                continue
+            result.append(
+                {
+                    **feature,
+                    "geometry": geometry,
+                    "properties": {
+                        **feature.get("properties", {}),
+                        "status": status,
+                    },
+                }
+            )
+    return result
 
 
 def infrastructure_level(properties: dict[str, Any], layer_id: str) -> str:

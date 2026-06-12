@@ -121,7 +121,7 @@ def add_osm_layers(
         if layer_id != "osm_critical":
             for feature in features:
                 rendered = dict(feature)
-                if layer_id in {"osm_roads", "osm_railways", "osm_bridges"}:
+                if layer_id == "osm_bridges":
                     rendered["geometry"] = (
                         feature.get("clipped_geometry") or feature.get("geometry")
                     )

@@ -66,14 +66,17 @@ def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
     periods = result.get("periods", {})
     dates = result.get("acquisition_dates", {})
     product_types = result.get("product_types", {})
+    coverage = result.get("coverage", {})
     st.caption(
         "BEFORE: "
         f"căutare {periods.get('before')} · data efectivă {dates.get('before')} · "
+        f"acoperire {float(coverage.get('before') or 0) * 100:.1f}% · "
         f"{product_types.get('before') or 'produs indisponibil'}"
     )
     st.caption(
         "AFTER: "
         f"căutare {periods.get('after')} · data efectivă {dates.get('after')} · "
+        f"acoperire {float(coverage.get('after') or 0) * 100:.1f}% · "
         f"{product_types.get('after') or 'produs indisponibil'}"
     )
     tile_errors = {
