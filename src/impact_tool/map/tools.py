@@ -47,3 +47,22 @@ class NavigationControl(MacroElement):
         self._name = "NavigationControl"
         self.bounds = bounds
         self.aoi_bounds = aoi_bounds
+
+
+class FocusLocation(MacroElement):
+    _template = Template(
+        """
+        {% macro script(this, kwargs) %}
+        (function () {
+          var map = {{ this._parent.get_name() }};
+          map.setView([{{ this.latitude }}, {{ this.longitude }}], 17);
+        })();
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, latitude: float, longitude: float) -> None:
+        super().__init__()
+        self._name = "FocusLocation"
+        self.latitude = float(latitude)
+        self.longitude = float(longitude)

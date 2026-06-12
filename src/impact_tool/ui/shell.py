@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from time import perf_counter
 from typing import Any
 
 from src.gee.gee_auth import local_earthengine_status
 from src.impact_tool.aoi import geometry_from_drawing
-from src.impact_tool.analysis import execute_analysis, execute_osm_loading, recalculate_osm_impact
+from src.impact_tool.analysis import (
+    execute_analysis,
+    execute_dynamic_world,
+    execute_osm_loading,
+    recalculate_osm_impact,
+)
 from src.impact_tool.dynamic_world import dynamic_world_layer_definitions
 from src.impact_tool.map.builder import build_shell_map
 from src.impact_tool.models import APP_SUBTITLE, APP_TITLE, LAYER_GROUPS
 from src.impact_tool.osm_impact import visible_impact_layers
 from src.impact_tool.report import generate_cached_report, report_filename
 from src.impact_tool.sar import sar_layer_definitions
-from src.impact_tool.state import initialize_state, set_aoi
+from src.impact_tool.state import initialize_state, record_timing, set_aoi
 from src.impact_tool.ui.results import render_result_tabs
 from src.impact_tool.ui.sidebar import render_sidebar
 
@@ -76,6 +84,7 @@ def render_app(st_module: Any | None = None) -> None:
             state,
             progress_callback=update_progress,
             load_osm=True,
+            mode=state.analysis_mode,
         )
         if success:
             status_box.success("Analiza raster și încărcarea OSM au fost finalizate.")
@@ -87,9 +96,16 @@ def render_app(st_module: Any | None = None) -> None:
             execute_osm_loading(state)
         st.rerun()
 
+    if state.dynamic_world_requested:
+        with st.spinner("Se rulează Dynamic World și corelarea multisursă..."):
+            execute_dynamic_world(state)
+        st.rerun()
+
     if state.report_requested:
         with st.spinner("Se generează raportul PDF..."):
+            report_started = perf_counter()
             state.report_bytes, from_cache = generate_cached_report(state)
+            record_timing(state, "PDF", perf_counter() - report_started)
             state.report_filename = report_filename(state)
             state.report_requested = False
             state.cache_events.append(
@@ -116,36 +132,58 @@ def render_app(st_module: Any | None = None) -> None:
     with map_column:
         from streamlit_folium import st_folium
 
-        map_data = st_folium(
-            build_shell_map(
-                counties_geojson,
-                state.county_name,
-                aoi_geometry=state.aoi_geometry,
-                preview_tiles=state.preview_tiles if state.swipe_enabled else {},
-                preview_scene_tile=(
-                    state.preview_scene_tile if not state.analysis_complete else ""
-                ),
-                analysis_layers=_analysis_layers(state),
-                buffer_geometry=_selected_buffer_geometry(state),
-                osm_layers=_visible_osm_layers(state),
-                focus_location=state.map_focus,
+        focus_location = list(state.map_focus)
+        map_started = perf_counter()
+        impact_map = build_shell_map(
+            counties_geojson,
+            state.county_name,
+            aoi_geometry=state.aoi_geometry,
+            preview_tiles=state.preview_tiles if state.swipe_enabled else {},
+            preview_scene_tile=(
+                state.preview_scene_tile if not state.analysis_complete else ""
             ),
+            analysis_layers=_analysis_layers(state),
+            buffer_geometry=_selected_buffer_geometry(state),
+            osm_layers=_visible_osm_layers(state),
+            focus_location=focus_location,
+        )
+        record_timing(state, "hartă", perf_counter() - map_started)
+        map_data = st_folium(
+            impact_map,
             use_container_width=True,
             height=640,
             returned_objects=["last_active_drawing", "all_drawings"],
-            key=(
-                f"impact-map-{state.county_name}-"
-                f"{state.active_area_hash or 'county'}-"
-                f"{state.analysis_hash or 'empty'}-"
-                f"{'-'.join(sorted(state.active_layers))}-"
-                f"{int(state.swipe_enabled)}"
-            ),
+            key=_map_render_key(state, focus_location),
         )
+        if focus_location:
+            state.map_focus = []
         drawing = geometry_from_drawing((map_data or {}).get("last_active_drawing"))
         if drawing and set_aoi(state, drawing):
             st.rerun()
 
     render_result_tabs(st, state)
+
+
+def _map_render_key(state: Any, focus_location: list[float] | None = None) -> str:
+    payload = {
+        "county": state.county_name,
+        "area": state.active_area_hash or "county",
+        "analysis": state.analysis_hash or "empty",
+        "layers": sorted(state.active_layers),
+        "buffer": state.buffer_meters,
+        "preview_scene": state.preview_scene_id,
+        "preview_tile": state.preview_scene_tile,
+        "preview_mode": state.preview_mode,
+        "swipe": state.swipe_enabled,
+        "osm_filters": state.osm_filters,
+        "critical_mode": state.critical_mode,
+        "presentation_mode": state.presentation_mode,
+        "focus": focus_location or [],
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:20]
+    return f"impact-map-{digest}"
 
 
 def _analysis_layers(state: Any) -> list[dict[str, Any]]:
@@ -159,7 +197,7 @@ def _analysis_layers(state: Any) -> list[dict[str, Any]]:
     return [
         layer
         for layer in layers
-        if layer["id"] in state.active_layers and layer.get("tile_url")
+        if layer["id"] in state.active_layers
     ]
 
 

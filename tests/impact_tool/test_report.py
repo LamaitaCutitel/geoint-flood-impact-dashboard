@@ -4,11 +4,13 @@ from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.report import (
     MANDATORY_NOTE,
+    _chart_datasets,
     generate_cached_report,
     generate_report_pdf,
     report_filename,
     _metric_label,
     _osm_dynamic_world_summary,
+    _report_cache_key,
     _osm_status_table,
     _synthetic_map,
 )
@@ -66,6 +68,21 @@ def test_report_cache(tmp_path) -> None:
     assert first == second
 
 
+def test_report_cache_key_changes_with_full_payload(tmp_path) -> None:
+    cache = PersistentCache(tmp_path)
+    state = _state()
+    initial = _report_cache_key(cache, state)
+    state.analysis_mode = "detaliat"
+    detailed = _report_cache_key(cache, state)
+    state.osm_status = {"roads": {"cache_date": "2026-06-12", "count": 1}}
+    osm_changed = _report_cache_key(cache, state)
+    state.analysis_results["dynamic_world"] = {
+        "acquisition_dates": {"before": "2024-09-01", "after": "2024-09-15"}
+    }
+    dynamic_changed = _report_cache_key(cache, state)
+    assert len({initial, detailed, osm_changed, dynamic_changed}) == 4
+
+
 def test_report_has_readable_labels_and_osm_completeness() -> None:
     state = _state()
     state.osm_status = {
@@ -120,6 +137,58 @@ def test_synthetic_map_contains_osm_and_works_offline() -> None:
     assert len(image.getvalue()) > 10_000
 
 
+def test_synthetic_map_uses_clipped_geometry_for_lines(monkeypatch) -> None:
+    from src.impact_tool import report
+
+    state = _state()
+    original = {
+        "type": "LineString",
+        "coordinates": [[27.0, 45.0], [28.0, 46.0]],
+    }
+    clipped = {
+        "type": "LineString",
+        "coordinates": [[27.4, 45.4], [27.6, 45.6]],
+    }
+    state.analysis_results["osm_impact"] = {
+        "layers": {
+            "osm_roads": {
+                "features": [
+                    {
+                        "geometry": original,
+                        "clipped_geometry": clipped,
+                        "properties": {"status": "Intersectat direct"},
+                    }
+                ]
+            }
+        }
+    }
+    plotted = []
+    monkeypatch.setattr(
+        report,
+        "_plot_osm_feature",
+        lambda axis, geometry, color, width, alpha: plotted.append(geometry),
+    )
+    report._synthetic_map(state)
+    assert clipped in plotted
+    assert original not in plotted
+
+
+def test_chart_datasets_do_not_mix_units() -> None:
+    state = _state()
+    state.analysis_results["osm_impact"] = {
+        "metrics": {
+            "buildings_direct": 2,
+            "roads_direct_km": 1.5,
+            "buildings_area_m2": 120,
+        }
+    }
+    datasets = dict(_chart_datasets(state))
+    assert "Număr elemente OSM" in datasets
+    assert "Lungimi infrastructură liniară (km)" in datasets
+    assert "Suprafețe clădiri (m²)" in datasets
+    assert "Drumuri direct" not in datasets["Număr elemente OSM"]
+
+
 def test_osm_dynamic_world_summary_handles_missing_data() -> None:
     text = _osm_dynamic_world_summary(_state())
     assert "0 km" in text
@@ -129,3 +198,23 @@ def test_osm_dynamic_world_summary_handles_missing_data() -> None:
 def test_report_filename_and_mandatory_note() -> None:
     assert report_filename(_state()) == "raport_geoint_inundatie_galati_2024-09-14.pdf"
     assert "nu constituie confirmare oficială" in MANDATORY_NOTE
+
+
+def test_report_filename_prefers_event_date() -> None:
+    state = _state()
+    state.event_date = "2024-09-20"
+    assert report_filename(state).endswith("_2024-09-20.pdf")
+
+
+def test_pdf_rapid_detailed_and_missing_data() -> None:
+    rapid = _state()
+    rapid.analysis_mode = "rapid"
+    detailed = _state()
+    detailed.analysis_mode = "detaliat"
+    detailed.analysis_results["dynamic_world"] = {
+        "status": "indisponibil",
+        "error": "fără observații",
+        "metrics": {},
+    }
+    assert generate_report_pdf(rapid).startswith(b"%PDF")
+    assert generate_report_pdf(detailed).startswith(b"%PDF")

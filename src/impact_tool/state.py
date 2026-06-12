@@ -24,9 +24,16 @@ def state_snapshot(state: ImpactToolState) -> dict[str, Any]:
     return asdict(state)
 
 
+def record_timing(state: ImpactToolState, stage: str, seconds: float) -> None:
+    duration = round(max(0.0, float(seconds)), 3)
+    state.timings[stage] = duration
+    state.cache_events.append(f"Timp {stage}: {duration:.3f} s.")
+
+
 def reset_scene_selection(state: ImpactToolState) -> None:
     state.before_scene = None
     state.after_scene = None
+    state.scene_gallery_limit = 8
     state.scenes_confirmed = False
     state.comparison_ready = False
     state.swipe_enabled = False
@@ -43,6 +50,7 @@ def reset_analysis_results(state: ImpactToolState) -> None:
     state.analysis_hash = ""
     state.report_bytes = None
     state.analysis_progress = 0
+    state.timings.clear()
     state.analysis_stage = "Pregătit pentru analiză"
 
 

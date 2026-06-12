@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from io import BytesIO
+import json
 from typing import Any
 
 import matplotlib
@@ -15,6 +17,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
     PageBreak,
@@ -30,7 +34,7 @@ from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 
 
-REPORT_VERSION = "2.0"
+REPORT_VERSION = "3.0"
 MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
@@ -38,8 +42,8 @@ MANDATORY_NOTE = (
 
 
 def report_filename(state: ImpactToolState) -> str:
-    event_date = "data-neprecizata"
-    if state.after_scene:
+    event_date = state.event_date or "data-neprecizata"
+    if event_date == "data-neprecizata" and state.after_scene:
         event_date = str(state.after_scene.get("acquisition_time", ""))[:10]
     county = state.county_name.lower().replace(" ", "_")
     return f"raport_geoint_inundatie_{county}_{event_date}.pdf"
@@ -50,13 +54,32 @@ def generate_cached_report(
     cache: PersistentCache | None = None,
 ) -> tuple[bytes, bool]:
     cache = cache or PersistentCache()
-    key = cache.key("reports", state.analysis_hash, state.buffer_meters, REPORT_VERSION)
+    key = _report_cache_key(cache, state)
     cached = cache.get("reports", key)
     if cached.hit and isinstance(cached.value, str):
         return base64.b64decode(cached.value), True
     pdf = generate_report_pdf(state)
     cache.set("reports", key, base64.b64encode(pdf).decode("ascii"))
     return pdf, False
+
+
+def _report_cache_key(cache: PersistentCache, state: ImpactToolState) -> str:
+    dynamic = state.analysis_results.get("dynamic_world") or {}
+    payload = {
+        "analysis_hash": state.analysis_hash,
+        "buffer_meters": state.buffer_meters,
+        "osm_metadata": state.osm_status,
+        "dynamic_world_dates": dynamic.get("acquisition_dates", {}),
+        "dynamic_world_products": dynamic.get("product_types", {}),
+        "analysis_mode": state.analysis_mode,
+        "report_version": REPORT_VERSION,
+    }
+    payload_hash = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return cache.key("reports", payload_hash)
 
 
 def generate_report_pdf(state: ImpactToolState) -> bytes:
@@ -72,6 +95,7 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
         pageCompression=0,
     )
     styles = getSampleStyleSheet()
+    _configure_fonts(styles)
     styles.add(
         ParagraphStyle(
             name="CoverTitle",
@@ -81,6 +105,7 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
             leading=30,
             textColor=colors.HexColor("#0f172a"),
             spaceAfter=18,
+            fontName="ImpactSans",
         )
     )
     story: list[Any] = [
@@ -126,6 +151,7 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
     )
     story.append(Paragraph("Corelare OSM × Dynamic World", styles["Heading3"]))
     story.append(Paragraph(_osm_dynamic_world_summary(state), styles["BodyText"]))
+    story.append(_osm_dynamic_world_table(state))
     story.append(Paragraph("Completitudine OpenStreetMap", styles["Heading3"]))
     story.append(_osm_status_table(state))
     story.append(PageBreak())
@@ -149,7 +175,7 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
         story,
         styles,
         "15. Surse",
-        "Copernicus Sentinel-1, Google Dynamic World și © OpenStreetMap contributors.",
+        _source_summary(state),
     )
     _section(story, styles, "16. Anexă tehnică", str(state.analysis_parameters))
     _section(
@@ -167,6 +193,25 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
     story.append(Paragraph(MANDATORY_NOTE, styles["Italic"]))
     document.build(story)
     return output.getvalue()
+
+
+def _configure_fonts(styles: Any) -> None:
+    if "ImpactSans" not in pdfmetrics.getRegisteredFontNames():
+        font_root = matplotlib.get_data_path() + "/fonts/ttf/"
+        pdfmetrics.registerFont(
+            TTFont("ImpactSans", font_root + "DejaVuSans.ttf")
+        )
+        pdfmetrics.registerFont(
+            TTFont("ImpactSans-Bold", font_root + "DejaVuSans-Bold.ttf")
+        )
+        pdfmetrics.registerFont(
+            TTFont("ImpactSans-Italic", font_root + "DejaVuSans-Oblique.ttf")
+        )
+    for name in ("Normal", "BodyText"):
+        styles[name].fontName = "ImpactSans"
+    for name in ("Title", "Heading1", "Heading2", "Heading3"):
+        styles[name].fontName = "ImpactSans-Bold"
+    styles["Italic"].fontName = "ImpactSans-Italic"
 
 
 def _section(story: list[Any], styles: Any, title: str, text: str) -> None:
@@ -255,6 +300,16 @@ def _format_value(value: Any) -> str:
     return str(value)
 
 
+def _dynamic_metric_value(result: dict[str, Any], key: str) -> float:
+    if key in result.get("metric_values", {}):
+        return float(result["metric_values"][key])
+    item = result.get("metrics", {}).get(key, 0)
+    if isinstance(item, dict):
+        value = item.get("value")
+        return float(value) if value is not None else 0.0
+    return float(item or 0)
+
+
 def _osm_status_table(state: ImpactToolState) -> Table:
     rows = [["Categorie OSM", "Obiecte", "Sursă", "Data cache", "Completitudine"]]
     for category, status in state.osm_status.items():
@@ -277,9 +332,9 @@ def _osm_status_table(state: ImpactToolState) -> Table:
 def _osm_dynamic_world_summary(state: ImpactToolState) -> str:
     dynamic = state.analysis_results.get("dynamic_world") or {}
     osm = state.analysis_results.get("osm_impact") or {}
-    overlap = dynamic.get("metrics", {}).get(
+    overlap = _dynamic_metric_value(
+        dynamic,
         "sar_dynamic_world_new_water_overlap_area_km2",
-        0,
     )
     affected = (osm.get("metrics") or {}).get("status_counts", {})
     return (
@@ -289,12 +344,45 @@ def _osm_dynamic_world_summary(state: ImpactToolState) -> str:
     )
 
 
+def _osm_dynamic_world_table(state: ImpactToolState) -> Table:
+    rows = [[
+        "Element OSM",
+        "Clasă BEFORE",
+        "Clasă AFTER",
+        "Tranziție",
+        "Status expunere",
+    ]]
+    correlation = state.analysis_results.get("osm_dynamic_world") or {}
+    for item in correlation.get("rows", [])[:100]:
+        rows.append(
+            [
+                item.get("name") or item.get("feature_key", "fără nume"),
+                item.get("before_class", "indisponibil"),
+                item.get("after_class", "indisponibil"),
+                item.get("transition", "indisponibil"),
+                item.get("status", "indisponibil"),
+            ]
+        )
+    if len(rows) == 1:
+        rows.append([
+            "Date indisponibile",
+            "-",
+            "-",
+            "-",
+            correlation.get("error", "Corelarea nu a fost calculată."),
+        ])
+    table = Table(rows, repeatRows=1)
+    table.setStyle(_table_style())
+    return table
+
+
 def _table_style() -> TableStyle:
     return TableStyle(
         [
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 0), (-1, -1), "ImpactSans"),
+            ("FONTNAME", (0, 0), (-1, 0), "ImpactSans-Bold"),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("PADDING", (0, 0), (-1, -1), 6),
         ]
@@ -337,6 +425,27 @@ def _osm_summary(state: ImpactToolState) -> str:
     )
 
 
+def _source_summary(state: ImpactToolState) -> str:
+    osm_sources = sorted(
+        {
+            str(status.get("source", "indisponibil"))
+            for status in state.osm_status.values()
+        }
+    )
+    cache_dates = sorted(
+        {
+            str(status.get("cache_date"))[:19]
+            for status in state.osm_status.values()
+            if status.get("cache_date")
+        }
+    )
+    return (
+        "Copernicus Sentinel-1; Google Dynamic World; © OpenStreetMap contributors. "
+        f"Sursă OSM: {', '.join(osm_sources) or 'indisponibilă'}. "
+        f"Data cache OSM: {', '.join(cache_dates) or 'indisponibilă'}."
+    )
+
+
 def _synthetic_map(state: ImpactToolState) -> BytesIO:
     figure, axis = plt.subplots(figsize=(10, 5.5))
     axis.set_facecolor("#f8fafc")
@@ -357,7 +466,12 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
         for feature in layer.get("features", []):
             if feature.get("properties", {}).get("status") == "Neexpus":
                 continue
-            _plot_osm_feature(axis, feature.get("geometry"), color, width, alpha)
+            geometry = (
+                feature.get("clipped_geometry")
+                if layer_id in {"osm_roads", "osm_railways", "osm_bridges"}
+                else None
+            ) or feature.get("geometry")
+            _plot_osm_feature(axis, geometry, color, width, alpha)
     axis.set_title("Harta sintetică a impactului inundației")
     axis.grid(color="#e2e8f0", linewidth=0.5)
     axis.annotate(
@@ -384,6 +498,7 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
             Patch(facecolor="#dc2626", alpha=0.35, label="Clădiri"),
             Line2D([0], [0], color="#f97316", lw=2, label="Drumuri"),
             Line2D([0], [0], color="#7c3aed", lw=2, label="Căi ferate"),
+            Line2D([0], [0], color="#0ea5e9", lw=2, label="Poduri"),
             Line2D([0], [0], marker="o", color="w", markerfacecolor="#b91c1c", label="Obiective"),
         ],
         loc="lower right",
@@ -442,38 +557,48 @@ def _chart_datasets(state: ImpactToolState) -> list[tuple[str, dict[str, float]]
     osm = (state.analysis_results.get("osm_impact") or {}).get("metrics", {})
     return [
         (
-            "Suprafețe de apă",
+            "Suprafețe de apă (km²)",
             {
                 "SAR": float(sar.get("sar_new_water_area_km2", 0)),
-                "Dynamic World": float(dynamic.get("metrics", {}).get("dynamic_world_new_water_area_km2", 0)),
-                "Suprapunere": float(dynamic.get("metrics", {}).get("sar_dynamic_world_new_water_overlap_area_km2", 0)),
-            },
-        ),
-        ("Tranziții Dynamic World către apă", dynamic.get("transitions", {})),
-        (
-            "Elemente OSM",
-            {
-                "Clădiri": float(osm.get("buildings_direct", 0)),
-                "Poduri": float(osm.get("bridges_direct", 0)),
-                "Obiective": float(osm.get("critical_direct", 0)),
-            },
-        ),
-        (
-            "Infrastructură liniară",
-            {
-                "Drumuri": float(osm.get("roads_direct_km", 0)),
-                "Căi ferate": float(osm.get("railways_direct_km", 0)),
-            },
-        ),
-        (
-            "Direct vs buffer",
-            {
-                "Direct": float(
-                    sum(v for key, v in osm.items() if key.endswith("_direct") and isinstance(v, (int, float)))
+                "Dynamic World": _dynamic_metric_value(
+                    dynamic,
+                    "dynamic_world_new_water_area_km2",
                 ),
-                "Buffer": float(
-                    sum(v for key, v in osm.items() if key.endswith("_buffer") and isinstance(v, (int, float)))
+                "Suprapunere": _dynamic_metric_value(
+                    dynamic,
+                    "sar_dynamic_world_new_water_overlap_area_km2",
                 ),
+            },
+        ),
+        (
+            "Tranziții Dynamic World către apă (km²)",
+            dynamic.get("transition_values", dynamic.get("transitions", {})),
+        ),
+        (
+            "Număr elemente OSM",
+            {
+                "Clădiri direct": float(osm.get("buildings_direct", 0)),
+                "Clădiri buffer": float(osm.get("buildings_buffer", 0)),
+                "Poduri direct": float(osm.get("bridges_direct", 0)),
+                "Poduri buffer": float(osm.get("bridges_buffer", 0)),
+                "Obiective direct": float(osm.get("critical_direct", 0)),
+                "Obiective buffer": float(osm.get("critical_buffer", 0)),
+            },
+        ),
+        (
+            "Lungimi infrastructură liniară (km)",
+            {
+                "Drumuri direct": float(osm.get("roads_direct_km", 0)),
+                "Drumuri buffer": float(osm.get("roads_buffer_km", 0)),
+                "Căi ferate direct": float(osm.get("railways_direct_km", 0)),
+                "Căi ferate buffer": float(osm.get("railways_buffer_km", 0)),
+            },
+        ),
+        (
+            "Suprafețe clădiri (m²)",
+            {
+                "Total analizat": float(osm.get("buildings_area_m2", 0)),
+                "Suprapunere apă": float(osm.get("buildings_overlap_m2", 0)),
             },
         ),
     ]

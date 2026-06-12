@@ -73,7 +73,9 @@ def test_shell_contains_required_controls():
     assert "Buffer în jurul apei noi" in source
     assert "Desenează zonă focală" in source
     assert "Șterge AOI și revino la județ" in source
-    assert "Rulează analiza impactului" in source
+    assert "Rulează analiza rapidă" in source
+    assert "Rulează analiza detaliată" in source
+    assert "Rulează / Reîncearcă Dynamic World" in source
     assert "Generează și descarcă raportul PDF" in source
     assert "disabled=not state.can_run_analysis" in source
     assert "disabled=not state.can_download_report" in source

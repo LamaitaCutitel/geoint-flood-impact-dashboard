@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from src.impact_tool.map.builder import build_shell_map
-from src.impact_tool.map.layers import add_osm_layers
+from src.impact_tool.map.layers import add_osm_layers, add_tile_layers
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.osm_impact import visible_impact_layers
-from src.impact_tool.ui.shell import _analysis_layers
+from src.impact_tool.ui.shell import _analysis_layers, _map_render_key
 import folium
+import pytest
 
 
 def test_map_contains_identify_measure_navigation_and_fullscreen() -> None:
@@ -35,6 +36,33 @@ def test_layer_control_contains_only_two_basemaps() -> None:
     assert "Apa noua SAR" not in control_config
 
 
+def test_active_tile_layer_is_visible_even_when_not_shown_by_default() -> None:
+    folium_map = folium.Map(location=[45.5, 27.5])
+    add_tile_layers(
+        folium_map,
+        [
+            {
+                "id": "dynamic_world_before",
+                "name": "Dynamic World BEFORE",
+                "tile_url": "https://tiles.test/{z}/{x}/{y}",
+                "shown": False,
+            }
+        ],
+    )
+    html = folium_map.get_root().render()
+    assert "Dynamic World BEFORE" not in html
+    assert "https://tiles.test/{z}/{x}/{y}" in html
+
+
+def test_active_tile_layer_without_url_emits_warning() -> None:
+    folium_map = folium.Map(location=[45.5, 27.5])
+    with pytest.warns(UserWarning, match="nu are tile_url"):
+        add_tile_layers(
+            folium_map,
+            [{"id": "sar_new_water", "name": "Apa noua SAR", "shown": True}],
+        )
+
+
 def test_navigation_control_can_center_aoi() -> None:
     counties = {
         "type": "FeatureCollection",
@@ -59,6 +87,26 @@ def test_navigation_control_can_center_aoi() -> None:
     }
     html = build_shell_map(counties, "Galati", aoi_geometry=aoi).get_root().render()
     assert "Centrează pe AOI" in html
+
+
+def test_focus_uses_single_set_view_at_zoom_17() -> None:
+    html = build_shell_map(
+        None,
+        "Galati",
+        focus_location=[45.5, 27.5],
+    ).get_root().render()
+    assert html.count("setView([45.5, 27.5], 17)") == 1
+
+
+def test_map_render_key_changes_for_buffer_filters_and_focus() -> None:
+    state = ImpactToolState(active_area_hash="area")
+    initial = _map_render_key(state)
+    state.buffer_meters = 500
+    changed_buffer = _map_render_key(state)
+    state.osm_filters["roads"] = False
+    changed_filter = _map_render_key(state)
+    changed_focus = _map_render_key(state, [45.5, 27.5])
+    assert len({initial, changed_buffer, changed_filter, changed_focus}) == 4
 
 
 def test_critical_mode_filters_secondary_layers() -> None:
@@ -239,6 +287,28 @@ def test_bridge_has_line_and_centroid_icon() -> None:
     assert "LineString" in html
     assert html.count("L.marker(") == 1
     assert "pod" in html
+
+
+def test_reference_buildings_render_only_at_large_zoom() -> None:
+    folium_map = folium.Map(location=[45.5, 27.5], zoom_start=10)
+    add_osm_layers(
+        folium_map,
+        {
+            "osm_buildings": {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+                        "properties": {"status": "Referință"},
+                    }
+                ],
+            }
+        },
+    )
+    html = folium_map.get_root().render()
+    assert "syncReferenceVisibility" in html
+    assert "getZoom() >= 14" in html
 
 
 def test_reference_filter_and_presentation_mode() -> None:

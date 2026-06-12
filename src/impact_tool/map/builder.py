@@ -15,7 +15,7 @@ from src.impact_tool.map.layers import (
 )
 from src.impact_tool.map.legend import ImpactLegend, legend_entries
 from src.impact_tool.map.swipe import SarSwipeControl
-from src.impact_tool.map.tools import NavigationControl
+from src.impact_tool.map.tools import FocusLocation, NavigationControl
 
 
 ROMANIA_CENTER = [45.9432, 24.9668]
@@ -167,9 +167,6 @@ def build_shell_map(
         SarSwipeControl(preview_tiles["before"], preview_tiles["after"]).add_to(folium_map)
     if focus_location and len(focus_location) == 2:
         latitude, longitude = focus_location
-        folium_map.fit_bounds(
-            [[latitude, longitude], [latitude, longitude]],
-            max_zoom=17,
-        )
+        FocusLocation(latitude, longitude).add_to(folium_map)
     folium.LayerControl(collapsed=True, position="topright").add_to(folium_map)
     return folium_map

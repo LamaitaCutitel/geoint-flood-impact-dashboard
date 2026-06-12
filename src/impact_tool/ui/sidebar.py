@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from time import perf_counter
 from typing import Any
 
 from src.app.county_boundaries import (
@@ -29,6 +30,7 @@ from src.impact_tool.scenes import (
 from src.impact_tool.state import (
     apply_scene_pair,
     clear_aoi,
+    record_timing,
     set_county,
     update_buffer,
 )
@@ -68,7 +70,17 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
             )
             st.rerun()
         if state.preset_name == GALATI_PRESET_NAME:
-            st.success("Cache Galați pregătit pentru rulare rapidă")
+            cache_states = {
+                item.get("status", "lipsă")
+                for item in state.preset_cache_status.values()
+            }
+            if cache_states == {"valid"}:
+                st.success("Cache Galați pregătit pentru rulare rapidă")
+            else:
+                st.warning(
+                    "Cache Galați: "
+                    + ", ".join(sorted(cache_states or {"lipsă"}))
+                )
         selected_index = counties.index(state.county_name) if state.county_name in counties else 0
         selected_county = st.selectbox(
             "Județ",
@@ -139,15 +151,24 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
         )
         update_buffer(state, selected_buffer)
 
-        run_clicked = st.button(
-            "Rulează analiza impactului",
+        rapid_column, detailed_column = st.columns(2)
+        run_rapid = rapid_column.button(
+            "Rulează analiza rapidă",
             type="primary",
             use_container_width=True,
             disabled=not state.can_run_analysis,
-            help="Butonul devine disponibil după confirmarea imaginilor BEFORE și AFTER.",
-            key="run_impact_analysis",
+            help="Rulează SAR și categoriile OSM operaționale, fără Dynamic World.",
+            key="run_rapid_analysis",
         )
-        if run_clicked:
+        run_detailed = detailed_column.button(
+            "Rulează analiza detaliată",
+            use_container_width=True,
+            disabled=not state.can_run_analysis,
+            help="Rulează SAR, Dynamic World, corelarea multisursă și toate categoriile OSM.",
+            key="run_detailed_analysis",
+        )
+        if run_rapid or run_detailed:
+            state.analysis_mode = "detaliat" if run_detailed else "rapid"
             state.run_requested = True
 
         with st.expander("Parametri SAR avansați", expanded=False):
@@ -250,6 +271,7 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
             state.scene_errors = [gee.message]
         else:
             aoi = build_aoi_from_geometry(gee.ee, state.active_geometry, state.active_area_bbox)
+            scenes_started = perf_counter()
             result = search_scenes(
                 cache=PersistentCache(),
                 aoi_hash=state.active_area_hash,
@@ -260,12 +282,20 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
                 searcher=search_sentinel1_scenes_result,
                 search_args=(gee.ee, aoi),
             )
+            record_timing(state, "scene", perf_counter() - scenes_started)
+            thumbnails_started = perf_counter()
             state.scene_candidates, thumbnail_hits = hydrate_scene_thumbnails(
                 cache=PersistentCache(),
                 ee=gee.ee,
                 aoi=aoi,
                 aoi_hash=state.active_area_hash,
                 scenes=result.scenes,
+                max_thumbnails=state.scene_gallery_limit,
+            )
+            record_timing(
+                state,
+                "thumbnail-uri",
+                perf_counter() - thumbnails_started,
             )
             state.scene_warnings = result.warnings
             state.scene_errors = result.errors
@@ -332,6 +362,18 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
     for warning in validation["warnings"]:
         st.warning(warning)
     accept_warnings = False
+    if st.button(
+        "Compară imaginile",
+        use_container_width=True,
+        disabled=not validation["compatible"],
+        key="compare_scene_pair",
+    ):
+        apply_scene_pair(state, before, after, False)
+        state.swipe_enabled = True
+        _refresh_preview_tiles(state)
+        st.rerun()
+    if state.swipe_enabled:
+        st.caption("Trage direct bara verticală din hartă pentru comparație.")
     if validation["requires_confirmation"]:
         accept_warnings = st.checkbox("Accept avertismentele perechii selectate")
     if st.button(
@@ -342,8 +384,6 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         confirmation = confirm_scene_pair(before, after, accept_warnings)
         apply_scene_pair(state, before, after, confirmation["confirmed"])
         if confirmation["confirmed"]:
-            state.swipe_enabled = False
-            state.preview_tiles.clear()
             state.preview_scene_id = ""
             state.preview_scene_tile = ""
             st.rerun()
@@ -360,11 +400,12 @@ def _render_scene_timeline(st: Any, scenes: list[dict[str, Any]]) -> None:
 
 def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
     st.markdown("##### Galerie scene")
-    for row_start in range(0, len(state.scene_candidates), 2):
+    visible_scenes = state.scene_candidates[: state.scene_gallery_limit]
+    for row_start in range(0, len(visible_scenes), 2):
         columns = st.columns(2)
         for column, scene in zip(
             columns,
-            state.scene_candidates[row_start : row_start + 2],
+            visible_scenes[row_start : row_start + 2],
         ):
             with column:
                 thumbnail = scene.get("thumbnail_url")
@@ -404,6 +445,14 @@ def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
                     state.after_scene = scene
                     st.session_state["impact_after_scene_select"] = scene_id
                     st.rerun()
+    if state.scene_gallery_limit < len(state.scene_candidates):
+        if st.button(
+            "Afișează mai multe",
+            use_container_width=True,
+            key="show_more_scene_thumbnails",
+        ):
+            _load_more_thumbnails(state)
+            st.rerun()
 
 
 def _preview_scene(state: ImpactToolState, scene: dict[str, Any]) -> None:
@@ -439,4 +488,29 @@ def _refresh_preview_tiles(state: ImpactToolState) -> None:
         state.before_scene,
         state.after_scene,
         state.preview_mode,
+        threshold=float(state.analysis_parameters["water_threshold"]),
+        smoothing_meters=int(state.analysis_parameters["smoothing_meters"]),
+        minimum_connected_pixels=int(
+            state.analysis_parameters["minimum_connected_pixels"]
+        ),
+    )
+
+
+def _load_more_thumbnails(state: ImpactToolState) -> None:
+    gee = initialize_earth_engine()
+    if not gee.available or gee.ee is None:
+        state.scene_errors = [gee.message]
+        return
+    state.scene_gallery_limit = min(
+        len(state.scene_candidates),
+        state.scene_gallery_limit + 8,
+    )
+    aoi = build_aoi_from_geometry(gee.ee, state.active_geometry, state.active_area_bbox)
+    state.scene_candidates, _ = hydrate_scene_thumbnails(
+        cache=PersistentCache(),
+        ee=gee.ee,
+        aoi=aoi,
+        aoi_hash=state.active_area_hash,
+        scenes=state.scene_candidates,
+        max_thumbnails=state.scene_gallery_limit,
     )

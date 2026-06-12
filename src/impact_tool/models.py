@@ -53,6 +53,7 @@ class ImpactToolState:
     scene_errors: list[str] = field(default_factory=list)
     scene_warnings: list[str] = field(default_factory=list)
     scene_query: dict = field(default_factory=dict)
+    scene_gallery_limit: int = 8
     preview_scene_id: str = ""
     preview_scene_tile: str = ""
     scenes_confirmed: bool = False
@@ -75,7 +76,9 @@ class ImpactToolState:
     )
     analysis_error: str = ""
     analysis_running: bool = False
+    analysis_mode: str = "rapid"
     run_requested: bool = False
+    dynamic_world_requested: bool = False
     analysis_progress: int = 0
     analysis_stage: str = "Pregătit pentru analiză"
     osm_status: dict = field(default_factory=dict)
@@ -95,9 +98,11 @@ class ImpactToolState:
     presentation_mode: bool = False
     map_focus: list[float] = field(default_factory=list)
     preset_name: str = ""
+    preset_cache_status: dict[str, dict] = field(default_factory=dict)
     event_date: str = ""
     reusable_cache: dict = field(default_factory=dict)
     cache_events: list[str] = field(default_factory=list)
+    timings: dict[str, float] = field(default_factory=dict)
     analysis_hash: str = ""
     report_bytes: bytes | None = None
     report_requested: bool = False

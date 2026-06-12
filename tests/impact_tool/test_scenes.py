@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import io
+import json
+import os
+import time
+
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.scenes import (
+    THUMBNAIL_TTL_SECONDS,
     confirm_scene_pair,
     hydrate_scene_thumbnails,
     search_scenes,
@@ -100,9 +106,11 @@ def test_swipe_has_single_control_and_fallback() -> None:
     from src.impact_tool.map.builder import build_shell_map
 
     html = build_shell_map(None, "Galati", preview_tiles={"before": "a", "after": "b"}).get_root().render()
-    assert html.count("impact-swipe-control") >= 1
-    assert html.count("Comparație BEFORE AFTER") == 1
+    assert html.count("impact-swipe-divider") >= 1
+    assert html.count("Comparatie BEFORE AFTER") == 1
     assert "leaflet-side-by-side" not in html
+    assert "type = 'range'" not in html
+    assert "mousedown" in html
 
 
 class FakeThumbnailImage:
@@ -114,6 +122,10 @@ def test_thumbnail_cache_hit_and_miss(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         "src.impact_tool.scenes.selected_scene_image",
         lambda *args: FakeThumbnailImage(),
+    )
+    monkeypatch.setattr(
+        "src.impact_tool.scenes.urlopen",
+        lambda *args, **kwargs: io.BytesIO(b"png"),
     )
     cache = PersistentCache(tmp_path)
     scenes = [_scene("scene", "2024-01-01T00:00:00Z")]
@@ -131,9 +143,78 @@ def test_thumbnail_cache_hit_and_miss(tmp_path, monkeypatch) -> None:
         aoi_hash="area",
         scenes=scenes,
     )
-    assert first[0]["thumbnail_url"].endswith("thumbnail.png")
+    assert first[0]["thumbnail_url"].endswith(".png")
+    assert os.path.exists(first[0]["thumbnail_url"])
     assert first_hits == 0
     assert second_hits == 1
+
+
+def test_thumbnail_cache_regenerates_expired_or_missing_file(tmp_path, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "src.impact_tool.scenes.selected_scene_image",
+        lambda *args: FakeThumbnailImage(),
+    )
+
+    def fake_open(*args, **kwargs):
+        calls.append(args)
+        return io.BytesIO(b"png")
+
+    monkeypatch.setattr("src.impact_tool.scenes.urlopen", fake_open)
+    cache = PersistentCache(tmp_path)
+    scenes = [_scene("scene", "2024-01-01T00:00:00Z")]
+    first, _ = hydrate_scene_thumbnails(
+        cache=cache,
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    os.unlink(first[0]["thumbnail_url"])
+    hydrate_scene_thumbnails(
+        cache=cache,
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    metadata_file = next((tmp_path / "thumbnails").glob("*.json"))
+    envelope = json.loads(metadata_file.read_text(encoding="utf-8"))
+    envelope["created_at"] = time.time() - THUMBNAIL_TTL_SECONDS - 1
+    metadata_file.write_text(json.dumps(envelope), encoding="utf-8")
+    hydrate_scene_thumbnails(
+        cache=cache,
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    assert len(calls) == 3
+
+
+def test_only_first_thumbnail_batch_is_generated(tmp_path, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "src.impact_tool.scenes.selected_scene_image",
+        lambda *args: calls.append(args) or FakeThumbnailImage(),
+    )
+    monkeypatch.setattr(
+        "src.impact_tool.scenes.urlopen",
+        lambda *args, **kwargs: io.BytesIO(b"png"),
+    )
+    scenes = [
+        _scene(str(index), f"2024-01-{index + 1:02d}T00:00:00Z")
+        for index in range(10)
+    ]
+    hydrated, _ = hydrate_scene_thumbnails(
+        cache=PersistentCache(tmp_path),
+        ee=object(),
+        aoi=object(),
+        aoi_hash="area",
+        scenes=scenes,
+    )
+    assert len(calls) == 8
+    assert hydrated[8]["thumbnail_url"] is None
 
 
 def test_timeline_is_chronological() -> None:
@@ -155,3 +236,10 @@ def test_single_scene_preview_layer() -> None:
         preview_scene_tile="https://tiles/preview/{z}/{x}/{y}",
     ).get_root().render()
     assert html.count("https://tiles/preview/{z}/{x}/{y}") == 1
+
+
+def test_compare_action_precedes_confirmation() -> None:
+    from pathlib import Path
+
+    source = Path("src/impact_tool/ui/sidebar.py").read_text(encoding="utf-8")
+    assert source.index('"Compară imaginile"') < source.index('"Confirmă imaginile"')

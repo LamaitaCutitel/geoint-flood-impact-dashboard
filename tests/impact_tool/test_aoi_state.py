@@ -113,6 +113,41 @@ def test_large_aoi_produces_warning():
     assert any("mare parte" in warning for warning in validation.warnings)
 
 
+def test_large_aoi_covering_county_is_detected_and_clipped_without_internal_vertices():
+    covering = {
+        "type": "Polygon",
+        "coordinates": [[
+            [26.0, 44.0],
+            [29.0, 44.0],
+            [29.0, 47.0],
+            [26.0, 47.0],
+            [26.0, 44.0],
+        ]],
+    }
+    validation = validate_aoi(covering, COUNTY)
+    assert validation.valid is True
+    assert validation.geometry is not None
+    assert area_metadata(validation.geometry).bbox == [27.0, 45.0, 28.0, 46.0]
+    assert any("decupat" in warning for warning in validation.warnings)
+
+
+def test_partially_overlapping_aoi_is_clipped_to_exact_intersection():
+    partial = {
+        "type": "Polygon",
+        "coordinates": [[
+            [27.5, 45.5],
+            [28.5, 45.5],
+            [28.5, 46.5],
+            [27.5, 46.5],
+            [27.5, 45.5],
+        ]],
+    }
+    validation = validate_aoi(partial, COUNTY)
+    assert validation.valid is True
+    assert validation.geometry is not None
+    assert area_metadata(validation.geometry).bbox == [27.5, 45.5, 28.0, 46.0]
+
+
 def test_geometry_from_streamlit_drawing_feature():
     drawing = {"type": "Feature", "properties": {}, "geometry": AOI}
 

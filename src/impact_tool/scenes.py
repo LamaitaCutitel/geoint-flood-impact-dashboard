@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
+from urllib.request import urlopen
 
 from src.gee.gee_tile_layers import ee_tile_url
 from src.gee.sar_water_masks import sar_water_mask
 from src.gee.sentinel1_scene_explorer import selected_scene_image, validate_scene_pair
 from src.impact_tool.cache import PersistentCache, scene_cache_key
+
+
+THUMBNAIL_TTL_SECONDS = 7 * 24 * 60 * 60
+THUMBNAIL_BATCH_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -84,9 +90,14 @@ def scene_thumbnail_url(
         scene.get("polarization"),
         dimensions,
     )
-    cached = cache.get("thumbnails", key)
-    if cached.hit and isinstance(cached.value, str):
-        return cached.value, True
+    cached = cache.get("thumbnails", key, ttl_seconds=THUMBNAIL_TTL_SECONDS)
+    cached_path = (
+        Path(cached.value.get("path", ""))
+        if cached.hit and isinstance(cached.value, dict)
+        else None
+    )
+    if cached_path and cached_path.is_file():
+        return str(cached_path), True
     image = selected_scene_image(ee, scene, aoi)
     url = image.getThumbURL(
         {
@@ -98,8 +109,21 @@ def scene_thumbnail_url(
             "format": "png",
         }
     )
-    cache.set("thumbnails", key, url)
-    return url, False
+    thumbnail_path = cache.root / "thumbnails" / f"{key}.png"
+    thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+    with urlopen(url, timeout=30) as response:
+        thumbnail_path.write_bytes(response.read())
+    cache.set(
+        "thumbnails",
+        key,
+        {
+            "path": str(thumbnail_path),
+            "source_url": url,
+            "scene_id": scene.get("ee_id"),
+            "dimensions": dimensions,
+        },
+    )
+    return str(thumbnail_path), False
 
 
 def hydrate_scene_thumbnails(
@@ -109,11 +133,16 @@ def hydrate_scene_thumbnails(
     aoi: Any,
     aoi_hash: str,
     scenes: list[dict[str, Any]],
+    max_thumbnails: int = THUMBNAIL_BATCH_SIZE,
 ) -> tuple[list[dict[str, Any]], int]:
     hydrated = []
     cache_hits = 0
-    for scene in scenes:
+    for index, scene in enumerate(scenes):
         item = dict(scene)
+        if index >= max_thumbnails:
+            item["thumbnail_url"] = item.get("thumbnail_url")
+            hydrated.append(item)
+            continue
         try:
             item["thumbnail_url"], hit = scene_thumbnail_url(
                 cache=cache,
@@ -179,12 +208,34 @@ def preview_tiles_for_pair(
     after: dict[str, Any],
     mode: str,
     threshold: float = -18.0,
+    smoothing_meters: int = 0,
+    minimum_connected_pixels: int = 8,
 ) -> dict[str, str]:
-    before_image = selected_scene_image(ee, before, aoi)
-    after_image = selected_scene_image(ee, after, aoi)
+    before_image = selected_scene_image(
+        ee,
+        before,
+        aoi,
+        smoothing_radius=smoothing_meters,
+    )
+    after_image = selected_scene_image(
+        ee,
+        after,
+        aoi,
+        smoothing_radius=smoothing_meters,
+    )
     if mode == "Doar apă observată prin SAR":
-        before_image = sar_water_mask(before_image, threshold, aoi, 0)
-        after_image = sar_water_mask(after_image, threshold, aoi, 0)
+        before_image = sar_water_mask(
+            before_image,
+            threshold,
+            aoi,
+            minimum_connected_pixels,
+        )
+        after_image = sar_water_mask(
+            after_image,
+            threshold,
+            aoi,
+            minimum_connected_pixels,
+        )
         before_name = "SAR water BEFORE"
         after_name = "SAR water AFTER"
     else:

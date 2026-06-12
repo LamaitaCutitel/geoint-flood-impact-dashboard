@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, MutableMapping
 
+from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
+from src.impact_tool.osm import inspect_osm_cache
+from src.impact_tool.osm_impact import buffered_geometry
 from src.impact_tool.state import set_county, update_buffer
 
 
@@ -24,4 +27,20 @@ def apply_galati_preset(
     session_state["impact_scene_start_preset"] = date(2024, 9, 1)
     session_state["impact_scene_end_preset"] = date(2024, 9, 30)
     session_state["impact_scene_polarization_preset"] = "VH"
-    state.cache_events.append("Cache Galați pregătit pentru rulare rapidă")
+    query_geometry, _ = buffered_geometry(county_geometry, 1000)
+    state.preset_cache_status = inspect_osm_cache(
+        PersistentCache(),
+        query_geometry,
+        analysis_mode="rapid",
+    )
+    statuses = {
+        item.get("status", "lipsă")
+        for item in state.preset_cache_status.values()
+    }
+    if statuses == {"valid"}:
+        state.cache_events.append("Cache Galați pregătit pentru rulare rapidă")
+    else:
+        state.cache_events.append(
+            "Cache Galați indisponibil sau incomplet: "
+            + ", ".join(sorted(statuses or {"lipsă"}))
+        )

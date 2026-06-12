@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
+import warnings
 
 import folium
+from branca.element import MacroElement
 from folium.plugins import MarkerCluster
+from jinja2 import Template
 from shapely.geometry import shape
 
 from src.app.county_boundaries import county_display_name
@@ -65,6 +68,12 @@ def add_tile_layers(folium_map: folium.Map, layers: list[dict[str, Any]]) -> Non
     for layer in layers:
         tile_url = layer.get("tile_url")
         if not tile_url:
+            warnings.warn(
+                f"Layerul activ '{layer.get('name', layer.get('id', 'necunoscut'))}' "
+                "nu are tile_url si nu poate fi afisat.",
+                UserWarning,
+                stacklevel=2,
+            )
             continue
         folium.TileLayer(
             tiles=tile_url,
@@ -72,7 +81,7 @@ def add_tile_layers(folium_map: folium.Map, layers: list[dict[str, Any]]) -> Non
             name=layer["name"],
             overlay=True,
             control=False,
-            show=bool(layer.get("shown")),
+            show=True,
         ).add_to(folium_map)
 
 
@@ -108,6 +117,7 @@ def add_osm_layers(
             show=True,
         ).add_to(folium_map)
         vector_features = []
+        reference_features = []
         if layer_id != "osm_critical":
             for feature in features:
                 rendered = dict(feature)
@@ -115,7 +125,13 @@ def add_osm_layers(
                     rendered["geometry"] = (
                         feature.get("clipped_geometry") or feature.get("geometry")
                     )
-                vector_features.append(rendered)
+                if (
+                    layer_id == "osm_buildings"
+                    and feature.get("properties", {}).get("status") == "Referință"
+                ):
+                    reference_features.append(rendered)
+                else:
+                    vector_features.append(rendered)
         if vector_features:
             folium.GeoJson(
                 {"type": "FeatureCollection", "features": vector_features},
@@ -126,6 +142,23 @@ def add_osm_layers(
                 ),
                 tooltip=_osm_tooltip(vector_features),
             ).add_to(group)
+        if reference_features:
+            reference_group = folium.FeatureGroup(
+                name="Clădiri de referință",
+                overlay=True,
+                control=False,
+                show=True,
+            ).add_to(group)
+            folium.GeoJson(
+                {"type": "FeatureCollection", "features": reference_features},
+                control=False,
+                style_function=lambda feature: _osm_style(
+                    "osm_buildings",
+                    feature.get("properties", {}).get("status", ""),
+                ),
+                tooltip=_osm_tooltip(reference_features),
+            ).add_to(reference_group)
+            _ZoomVisibility(reference_group.get_name(), 14).add_to(folium_map)
 
         if layer_id in {"osm_critical", "osm_bridges"}:
             cluster = MarkerCluster(
@@ -241,3 +274,31 @@ def _osm_tooltip(features: list[dict[str, Any]]) -> folium.GeoJsonTooltip | None
         return None
     aliases = [alias for field, alias in candidates if field in available]
     return folium.GeoJsonTooltip(fields=fields, aliases=aliases, localize=True)
+
+
+class _ZoomVisibility(MacroElement):
+    _template = Template(
+        """
+        {% macro script(this, kwargs) %}
+        (function () {
+          var map = {{ this._parent.get_name() }};
+          var layer = {{ this.layer_name }};
+          function syncReferenceVisibility() {
+            if (map.getZoom() >= {{ this.minimum_zoom }}) {
+              if (!map.hasLayer(layer)) { layer.addTo(map); }
+            } else if (map.hasLayer(layer)) {
+              map.removeLayer(layer);
+            }
+          }
+          map.on('zoomend', syncReferenceVisibility);
+          syncReferenceVisibility();
+        })();
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, layer_name: str, minimum_zoom: int) -> None:
+        super().__init__()
+        self._name = "ZoomVisibility"
+        self.layer_name = layer_name
+        self.minimum_zoom = minimum_zoom

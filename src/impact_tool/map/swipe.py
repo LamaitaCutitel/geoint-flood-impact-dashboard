@@ -6,7 +6,7 @@ from branca.element import MacroElement
 from jinja2 import Template
 
 
-SWIPE_CONTROL_STATUS = "indisponibil până la selectarea scenelor"
+SWIPE_CONTROL_STATUS = "indisponibil pana la selectarea scenelor"
 
 
 def swipe_ready(before_scene: dict | None, after_scene: dict | None) -> bool:
@@ -18,16 +18,15 @@ class SarSwipeControl(MacroElement):
         """
         {% macro html(this, kwargs) %}
         <style>
-          .impact-swipe-control {
-            background:rgba(15,23,42,.92); border:1px solid #64748b;
-            border-radius:6px; color:#fff; padding:8px 10px; width:220px;
-          }
-          .impact-swipe-control strong { display:block; font-size:12px; margin-bottom:5px; }
-          .impact-swipe-control input { cursor:ew-resize; margin:0; width:100%; }
           .impact-swipe-divider {
             background:#fff; box-shadow:0 0 0 1px #0f172a;
-            pointer-events:none; position:absolute; top:0; bottom:0; width:3px;
-            z-index:650;
+            cursor:ew-resize; pointer-events:auto; position:absolute;
+            top:0; bottom:0; width:4px; z-index:650; touch-action:none;
+          }
+          .impact-swipe-label {
+            background:rgba(15,23,42,.88); border-radius:4px; color:#fff;
+            font:700 11px/1 sans-serif; padding:6px 8px; pointer-events:none;
+            position:absolute; top:12px; z-index:651;
           }
         </style>
         {% endmacro %}
@@ -49,27 +48,48 @@ class SarSwipeControl(MacroElement):
             attribution:'Google Earth Engine', pane:'impactSwipeAfter'
           }).addTo(map);
 
-          var divider = L.DomUtil.create('div', 'impact-swipe-divider', map.getContainer());
-          var control = L.control({position:'topright'});
-          control.onAdd = function () {
-            var box = L.DomUtil.create('div', 'impact-swipe-control');
-            box.innerHTML = '<strong>BEFORE ↔ AFTER</strong>';
-            var slider = L.DomUtil.create('input', '', box);
-            slider.type = 'range';
-            slider.min = '0'; slider.max = '100'; slider.value = '50';
-            slider.setAttribute('aria-label', 'Comparație BEFORE AFTER');
-            function update() {
-              var percent = Number(slider.value);
-              afterPane.style.clipPath = 'inset(0 0 0 ' + percent + '%)';
-              divider.style.left = percent + '%';
-            }
-            slider.addEventListener('input', update);
-            L.DomEvent.disableClickPropagation(box);
-            L.DomEvent.disableScrollPropagation(box);
-            update();
-            return box;
-          };
-          control.addTo(map);
+          var container = map.getContainer();
+          var divider = L.DomUtil.create('div', 'impact-swipe-divider', container);
+          divider.setAttribute('aria-label', 'Comparatie BEFORE AFTER');
+          divider.setAttribute('role', 'separator');
+          var beforeLabel = L.DomUtil.create('div', 'impact-swipe-label', container);
+          var afterLabel = L.DomUtil.create('div', 'impact-swipe-label', container);
+          beforeLabel.innerHTML = 'BEFORE';
+          afterLabel.innerHTML = 'AFTER';
+          beforeLabel.style.left = '12px';
+          afterLabel.style.right = '12px';
+
+          function update(clientX) {
+            var bounds = container.getBoundingClientRect();
+            var percent = Math.max(
+              0,
+              Math.min(100, ((clientX - bounds.left) / bounds.width) * 100)
+            );
+            afterPane.style.clipPath = 'inset(0 0 0 ' + percent + '%)';
+            divider.style.left = 'calc(' + percent + '% - 2px)';
+          }
+          function move(event) {
+            var point = event.touches ? event.touches[0] : event;
+            update(point.clientX);
+            event.preventDefault();
+          }
+          function stop() {
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', stop);
+            document.removeEventListener('touchmove', move);
+            document.removeEventListener('touchend', stop);
+          }
+          function start(event) {
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', stop);
+            document.addEventListener('touchmove', move, {passive:false});
+            document.addEventListener('touchend', stop);
+            move(event);
+          }
+          divider.addEventListener('mousedown', start);
+          divider.addEventListener('touchstart', start, {passive:false});
+          L.DomEvent.disableClickPropagation(divider);
+          update(container.getBoundingClientRect().left + map.getSize().x / 2);
         })();
         {% endmacro %}
         """

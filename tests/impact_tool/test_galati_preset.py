@@ -17,7 +17,14 @@ COUNTY = {
 }
 
 
-def test_galati_preset_populates_demo_values_and_cache_status() -> None:
+def test_galati_preset_populates_demo_values_and_cache_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.impact_tool.presets.inspect_osm_cache",
+        lambda *args, **kwargs: {
+            category: {"status": "valid"}
+            for category in ("buildings", "roads", "railways", "bridges", "critical")
+        },
+    )
     state = ImpactToolState(county_name="Braila", buffer_meters=1000)
     session = {}
     apply_galati_preset(state, session, COUNTY, [27, 45, 28, 46])
@@ -29,6 +36,10 @@ def test_galati_preset_populates_demo_values_and_cache_status() -> None:
     assert session["impact_scene_end_preset"] == date(2024, 9, 30)
     assert session["impact_scene_polarization_preset"] == "VH"
     assert "Cache Galați pregătit pentru rulare rapidă" in state.cache_events
+    assert all(
+        status["status"] == "valid"
+        for status in state.preset_cache_status.values()
+    )
 
 
 def test_buffer_extremes_and_restart_preserve_state() -> None:

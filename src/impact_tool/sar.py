@@ -65,7 +65,9 @@ def run_sar_analysis(
         "sar_water_after": ee_tile_url(after_water, "SAR water AFTER"),
         "sar_new_water": ee_tile_url(changes["sar_new_water"], "SAR new water"),
     }
+    vector_started = perf_counter()
     new_water_geometry = _vector_geometry(changes["sar_new_water"], aoi)
+    vector_duration = round(perf_counter() - vector_started, 3)
     return {
         "products": {**masks, **changes},
         "metrics": metrics,
@@ -78,6 +80,7 @@ def run_sar_analysis(
             "minimum_connected_pixels": parameters.minimum_connected_pixels,
         },
         "duration_seconds": round(perf_counter() - started, 3),
+        "vectorization_duration_seconds": vector_duration,
     }
 
 

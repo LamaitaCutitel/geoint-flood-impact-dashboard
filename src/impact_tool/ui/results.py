@@ -15,6 +15,8 @@ def render_result_tabs(st: Any, state: ImpactToolState) -> None:
             with st.expander("Jurnal procesare și cache", expanded=False):
                 for event in state.cache_events[-12:]:
                     st.caption(f"✓ {event}")
+                if state.timings:
+                    st.json(state.timings, expanded=False)
     with tabs[1]:
         _render_sar_summary(st, state)
     with tabs[2]:
@@ -39,6 +41,13 @@ def _render_sar_summary(st: Any, state: ImpactToolState) -> None:
 
 
 def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
+    if st.button(
+        "Rulează / Reîncearcă Dynamic World",
+        disabled=not bool(state.analysis_results.get("sar")),
+        key="run_dynamic_world",
+    ):
+        state.dynamic_world_requested = True
+        st.rerun()
     result = state.analysis_results.get("dynamic_world")
     if not result:
         message = state.analysis_results.get(
@@ -47,8 +56,36 @@ def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
         )
         st.info(message)
         return
+    status = result.get("status", "indisponibil")
+    if status == "reușit":
+        st.success("Dynamic World: reușit")
+    elif status == "tile indisponibil":
+        st.warning(result.get("error") or "Dynamic World: tile indisponibil")
+    else:
+        st.error(result.get("error") or f"Dynamic World: {status}")
+    periods = result.get("periods", {})
+    dates = result.get("acquisition_dates", {})
+    product_types = result.get("product_types", {})
+    st.caption(
+        "BEFORE: "
+        f"căutare {periods.get('before')} · data efectivă {dates.get('before')} · "
+        f"{product_types.get('before') or 'produs indisponibil'}"
+    )
+    st.caption(
+        "AFTER: "
+        f"căutare {periods.get('after')} · data efectivă {dates.get('after')} · "
+        f"{product_types.get('after') or 'produs indisponibil'}"
+    )
+    tile_errors = {
+        key: value
+        for key, value in result.get("tiles", {}).items()
+        if isinstance(value, dict) and value.get("status") != "reușit"
+    }
+    if tile_errors:
+        with st.expander("Diagnostic tile-uri Dynamic World", expanded=False):
+            st.json(tile_errors, expanded=False)
     st.subheader("Diferențe observate Dynamic World")
-    st.bar_chart(result.get("transitions", {}))
+    st.bar_chart(result.get("transition_values", {}))
     st.json(result.get("metrics", {}), expanded=False)
 
 

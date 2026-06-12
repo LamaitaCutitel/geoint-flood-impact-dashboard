@@ -4,12 +4,16 @@ import pytest
 
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.osm import (
+    OSM_QUERY_VERSION,
     OSM_LIMITS,
     _append_relation_features,
     _critical_layer,
     build_category_query,
     deduplicate_elements,
+    filter_osm_layers_to_geometry,
+    inspect_osm_cache,
     load_osm_categories,
+    osm_geometry_hash,
     split_bbox,
 )
 from src.impact_tool.osm_impact import (
@@ -79,11 +83,80 @@ def test_osm_cache_avoids_second_request(tmp_path) -> None:
     assert second["status"]["buildings"]["source"] == "cache"
 
 
+def test_cache_key_is_versioned_and_independent_of_current_day(tmp_path) -> None:
+    calls = []
+    cache = PersistentCache(tmp_path)
+    kwargs = dict(
+        analysis_complete=True,
+        aoi_hash="ignored-by-osm-cache",
+        bbox=[27, 45, 28, 46],
+        geometry=COUNTY,
+        cache=cache,
+        categories=("buildings",),
+        fetcher=lambda query: calls.append(query) or {"elements": []},
+    )
+    load_osm_categories(**kwargs)
+    keys = [path.stem for path in (tmp_path / "osm").glob("*.json")]
+    expected = cache.key(
+        "osm",
+        osm_geometry_hash({"bbox": [27, 45, 28, 46]}),
+        "buildings",
+        OSM_QUERY_VERSION,
+        OSM_LIMITS["buildings"],
+    )
+    assert keys == [expected]
+    load_osm_categories(**{**kwargs, "aoi_hash": "different"})
+    assert len(calls) == 1
+
+
+def test_cache_status_valid_missing_expired_and_incomplete(tmp_path) -> None:
+    import json
+    import time
+
+    cache = PersistentCache(tmp_path)
+    missing = inspect_osm_cache(cache, COUNTY, categories=("buildings",))
+    assert missing["buildings"]["status"] == "lipsă"
+
+    load_osm_categories(
+        analysis_complete=True,
+        aoi_hash="a",
+        bbox=[27, 45, 28, 46],
+        geometry=COUNTY,
+        cache=cache,
+        categories=("buildings",),
+        fetcher=lambda query: {"elements": []},
+    )
+    valid = inspect_osm_cache(cache, COUNTY, categories=("buildings",))
+    assert valid["buildings"]["status"] == "valid"
+
+    metadata_path = next((tmp_path / "osm-metadata").glob("*.json"))
+    envelope = json.loads(metadata_path.read_text(encoding="utf-8"))
+    envelope["value"]["completeness"] = "posibil incomplet"
+    metadata_path.write_text(json.dumps(envelope), encoding="utf-8")
+    incomplete = inspect_osm_cache(cache, COUNTY, categories=("buildings",))
+    assert incomplete["buildings"]["status"] == "incomplet"
+
+    envelope["created_at"] = time.time() - 100
+    metadata_path.write_text(json.dumps(envelope), encoding="utf-8")
+    expired = inspect_osm_cache(
+        cache,
+        COUNTY,
+        categories=("buildings",),
+        ttl_seconds=10,
+    )
+    assert expired["buildings"]["status"] == "expirat"
+
+
 def test_category_limits_and_timeout() -> None:
     for category, limit in OSM_LIMITS.items():
         query = build_category_query([27, 45, 28, 46], category)
         assert f"out body {limit}" in query
         assert "[timeout:60]" in query
+    assert 'relation["building"]' in build_category_query(
+        [27, 45, 28, 46],
+        "buildings",
+    )
+    assert "primary_link" in build_category_query([27, 45, 28, 46], "roads")
 
 
 def test_bbox_tiling_and_deduplication() -> None:
@@ -105,7 +178,13 @@ def test_limit_triggers_four_tiles_and_completeness_warning(tmp_path) -> None:
         calls.append(query)
         return {
             "elements": [
-                {"type": "node", "id": index, "lat": 45.5, "lon": 27.5}
+                {
+                    "type": "node",
+                    "id": index,
+                    "lat": 45.5,
+                    "lon": 27.5,
+                    "tags": {"amenity": "hospital"},
+                }
                 for index in range(OSM_LIMITS["critical"])
             ]
         }
@@ -119,7 +198,7 @@ def test_limit_triggers_four_tiles_and_completeness_warning(tmp_path) -> None:
         categories=("critical",),
         fetcher=fetcher,
     )
-    assert len(calls) == 5
+    assert len(calls) == 21
     assert result["status"]["critical"]["completeness"] == "posibil incomplet"
     assert result["status"]["critical"]["warnings"]
 
@@ -272,6 +351,44 @@ def test_osm_relation_multipolygon_with_hole_is_parsed() -> None:
     assert len(geometry["coordinates"]) == 2
 
 
+def test_road_crossing_aoi_is_kept_without_internal_vertex() -> None:
+    layers = {
+        "osm_roads": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"highway": "primary"},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[26.5, 45.5], [28.5, 45.5]],
+                    },
+                }
+            ],
+        }
+    }
+    filtered = filter_osm_layers_to_geometry(layers, COUNTY)
+    assert len(filtered["osm_roads"]["features"]) == 1
+
+
+def test_power_query_differs_between_rapid_and_detailed_modes() -> None:
+    rapid = build_category_query(
+        [27, 45, 28, 46],
+        "critical",
+        analysis_mode="rapid",
+    )
+    detailed = build_category_query(
+        [27, 45, 28, 46],
+        "critical",
+        analysis_mode="detaliat",
+    )
+    for power_class in ("substation", "plant", "generator", "transformer"):
+        assert power_class in rapid
+    for power_class in ("pole", "tower", "line", "cable"):
+        assert power_class not in rapid
+        assert power_class in detailed
+
+
 def test_building_reference_is_limited_to_500_m() -> None:
     from src.impact_tool.osm_impact import STATUS_REFERENCE
 
@@ -300,6 +417,42 @@ def test_building_reference_is_limited_to_500_m() -> None:
     ]
     assert statuses[0] == STATUS_REFERENCE
     assert statuses[1] == "Neexpus"
+
+
+def test_analysis_features_are_separate_from_limited_display_features() -> None:
+    water = {"type": "Point", "coordinates": [27.5, 45.5]}
+    features = [
+        {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {"type": "Point", "coordinates": [27.5, 45.5]},
+        }
+    ]
+    features.extend(
+        {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+                "type": "Point",
+                "coordinates": [27.501 + (index % 10) * 0.00001, 45.5],
+            },
+        }
+        for index in range(900)
+    )
+    result = classify_osm_impact(
+        {
+            "osm_buildings": {
+                "type": "FeatureCollection",
+                "features": features,
+            }
+        },
+        water,
+        1,
+    )
+    buildings = result["layers"]["osm_buildings"]
+    assert len(buildings["analysis_features"]) == 901
+    assert len(buildings["display_features"]) <= 751
+    assert buildings["display_features"][0]["properties"]["status"] == STATUS_DIRECT
 
 
 def test_buffer_limits_and_symbols() -> None:

@@ -31,7 +31,8 @@ def test_streamlit_controls_start_disabled():
     app.run(timeout=20)
 
     buttons = {button.label: button for button in app.button}
-    assert buttons["Rulează analiza impactului"].disabled is True
+    assert buttons["Rulează analiza rapidă"].disabled is True
+    assert buttons["Rulează analiza detaliată"].disabled is True
     assert buttons["Generează și descarcă raportul PDF"].disabled is True
 
     buffer_slider = next(

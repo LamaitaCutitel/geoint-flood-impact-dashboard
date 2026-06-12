@@ -3,14 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from shapely.geometry import shape
+
 from src.gee.dynamic_world import (
     dynamic_world_change_map,
-    nearest_dynamic_world_image,
+    dynamic_world_mode,
     dynamic_world_water_change_masks,
-    mask_area_km2,
 )
+from src.gee.gee_config import COLLECTIONS
 from src.gee.gee_tile_layers import ee_tile_url
-from src.gee.sar_water_masks import sar_dynamic_world_overlap, sar_water_area_metrics
+from src.gee.sar_water_masks import sar_dynamic_world_overlap
 
 
 TRANSITION_CLASSES = {
@@ -21,6 +23,17 @@ TRANSITION_CLASSES = {
     3: "flooded vegetation",
     5: "shrub and scrub",
     7: "bare",
+}
+CLASS_NAMES = {
+    0: "apă",
+    1: "arbori",
+    2: "iarbă",
+    3: "vegetație inundată",
+    4: "culturi",
+    5: "arbuști",
+    6: "construit",
+    7: "teren gol",
+    8: "zăpadă/gheață",
 }
 
 
@@ -44,8 +57,35 @@ def run_dynamic_world_analysis(
     after_target = str(after_scene["acquisition_time"])[:10]
     before_period = scene_day_period(before_scene)
     after_period = scene_day_period(after_scene)
-    before, before_date = nearest_dynamic_world_image(ee, aoi, before_target)
-    after, after_date = nearest_dynamic_world_image(ee, aoi, after_target)
+    try:
+        before, before_metadata = _select_observation(
+            ee,
+            aoi,
+            before_target,
+            before_period,
+            scale_meters,
+        )
+        after, after_metadata = _select_observation(
+            ee,
+            aoi,
+            after_target,
+            after_period,
+            scale_meters,
+        )
+    except Exception as exc:
+        return {
+            "status": "indisponibil",
+            "error": str(exc),
+            "periods": {"before": before_period, "after": after_period},
+            "acquisition_dates": {"before": None, "after": None},
+            "product_types": {"before": None, "after": None},
+            "tiles": {},
+            "metrics": {},
+            "metric_values": {},
+            "transitions": {},
+            "transition_values": {},
+        }
+
     change = dynamic_world_change_map(ee, before, after, aoi)
     water_masks = dynamic_world_water_change_masks(before, after, sar_new_water, aoi)
     correlation = sar_dynamic_world_overlap(
@@ -53,38 +93,66 @@ def run_dynamic_world_analysis(
         water_masks["dynamic_world_new_water"],
         aoi,
     )
-    areas = sar_water_area_metrics(
-        ee,
-        {
-            "dynamic_world_new_water": water_masks["dynamic_world_new_water"],
-            **correlation,
-        },
-        aoi,
-        scale_meters,
-    )
-    transitions = {}
-    for class_id, class_name in TRANSITION_CLASSES.items():
-        mask = before.eq(class_id).And(after.eq(0)).selfMask().clip(aoi)
-        transitions[class_name] = round(mask_area_km2(ee, mask, aoi, scale_meters), 4)
-    tiles = {
-        "dynamic_world_before": ee_tile_url(before, "Dynamic World before"),
-        "dynamic_world_after": ee_tile_url(after, "Dynamic World after"),
-        "dynamic_world_changes": ee_tile_url(change, "Land cover changes"),
-        "dynamic_world_new_water": ee_tile_url(
+    metric_masks = {
+        "dynamic_world_new_water_area_km2": water_masks["dynamic_world_new_water"],
+        "sar_dynamic_world_new_water_overlap_area_km2": correlation[
+            "sar_dynamic_world_new_water_overlap"
+        ],
+        "new_water_only_sar_area_km2": correlation["new_water_only_sar"],
+        "new_water_only_dynamic_world_area_km2": correlation[
+            "new_water_only_dynamic_world"
+        ],
+    }
+    transition_masks = {
+        class_name: before.eq(class_id).And(after.eq(0)).selfMask().clip(aoi)
+        for class_id, class_name in TRANSITION_CLASSES.items()
+    }
+    metrics = _metric_statuses(ee, metric_masks, aoi, scale_meters)
+    transitions = _metric_statuses(ee, transition_masks, aoi, scale_meters)
+    metric_values = _successful_values(metrics)
+    transition_values = _successful_values(transitions)
+
+    tile_images = {
+        "dynamic_world_before": (before, "Dynamic World before"),
+        "dynamic_world_after": (after, "Dynamic World after"),
+        "dynamic_world_changes": (change, "Land cover changes"),
+        "dynamic_world_new_water": (
             water_masks["dynamic_world_new_water"],
             "Dynamic World - apa noua",
         ),
-        "both_methods": ee_tile_url(
+        "both_methods": (
             correlation["sar_dynamic_world_new_water_overlap"],
             "SAR x Dynamic World new water overlap",
         ),
-        "only_sar": ee_tile_url(correlation["new_water_only_sar"], "New water only SAR"),
-        "only_dynamic_world": ee_tile_url(
+        "only_sar": (correlation["new_water_only_sar"], "New water only SAR"),
+        "only_dynamic_world": (
             correlation["new_water_only_dynamic_world"],
             "New water only Dynamic World",
         ),
     }
+    tiles = {
+        key: _tile_status(image, name)
+        for key, (image, name) in tile_images.items()
+    }
+    available_tiles = sum(item["status"] == "reușit" for item in tiles.values())
+    result_status = "reușit" if available_tiles else "tile indisponibil"
+    result_error = (
+        None
+        if available_tiles
+        else "Google Earth Engine nu a furnizat URL-uri pentru tile-urile Dynamic World."
+    )
+    overlap = metric_values.get(
+        "sar_dynamic_world_new_water_overlap_area_km2",
+        0.0,
+    )
+    only_sar = metric_values.get("new_water_only_sar_area_km2", 0.0)
+    only_dynamic = metric_values.get(
+        "new_water_only_dynamic_world_area_km2",
+        0.0,
+    )
     return {
+        "status": result_status,
+        "error": result_error,
         "products": {
             "before": before,
             "after": after,
@@ -93,25 +161,249 @@ def run_dynamic_world_analysis(
             **correlation,
         },
         "periods": {"before": before_period, "after": after_period},
-        "acquisition_dates": {"before": before_date, "after": after_date},
-        "metrics": areas,
+        "acquisition_dates": {
+            "before": before_metadata["acquisition_date"],
+            "after": after_metadata["acquisition_date"],
+        },
+        "product_types": {
+            "before": before_metadata["product_type"],
+            "after": after_metadata["product_type"],
+        },
+        "coverage": {
+            "before": before_metadata["coverage"],
+            "after": after_metadata["coverage"],
+        },
+        "metrics": metrics,
+        "metric_values": metric_values,
         "transitions": transitions,
+        "transition_values": transition_values,
         "tiles": tiles,
         "charts": {
             "water_areas": {
-                "Apă nouă SAR": areas.get("new_water_only_sar_area_km2", 0)
-                + areas.get("sar_dynamic_world_new_water_overlap_area_km2", 0),
-                "Apă nouă Dynamic World": areas.get(
-                    "new_water_only_dynamic_world_area_km2", 0
-                )
-                + areas.get("sar_dynamic_world_new_water_overlap_area_km2", 0),
-                "Suprapunere": areas.get(
-                    "sar_dynamic_world_new_water_overlap_area_km2", 0
-                ),
+                "Apă nouă SAR": only_sar + overlap,
+                "Apă nouă Dynamic World": only_dynamic + overlap,
+                "Suprapunere": overlap,
             },
-            "transitions": transitions,
+            "transitions": transition_values,
         },
     }
+
+
+def _select_observation(
+    ee: Any,
+    aoi: Any,
+    target_date: str,
+    period: tuple[str, str],
+    scale_meters: int,
+) -> tuple[Any, dict[str, Any]]:
+    target = ee.Date(target_date)
+    collection = (
+        ee.ImageCollection(COLLECTIONS.dynamic_world)
+        .filterBounds(aoi)
+        .filterDate(period[0], period[1])
+        .select("label")
+    )
+    count = int(collection.size().getInfo())
+    if count == 0:
+        raise RuntimeError(
+            f"Dynamic World nu are observații în perioada {period[0]} - {period[1]}."
+        )
+
+    total_pixels = ee.Image.constant(1).reduceRegion(
+        reducer=ee.Reducer.count(),
+        geometry=aoi,
+        scale=scale_meters,
+        maxPixels=1e9,
+        bestEffort=True,
+    ).values().get(0)
+
+    def score(image: Any) -> Any:
+        valid_pixels = image.select("label").mask().reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=aoi,
+            scale=scale_meters,
+            maxPixels=1e9,
+            bestEffort=True,
+        ).values().get(0)
+        coverage = ee.Number(valid_pixels).divide(ee.Number(total_pixels).max(1))
+        distance = image.date().difference(target, "day").abs()
+        selection_score = coverage.multiply(1_000_000).subtract(distance)
+        return image.set(
+            {
+                "valid_pixels": valid_pixels,
+                "aoi_coverage": coverage,
+                "distance_to_target": distance,
+                "selection_score": selection_score,
+            }
+        )
+
+    scored = collection.map(score).sort("selection_score", False)
+    selected = ee.Image(scored.first())
+    coverage = float(ee.Number(selected.get("aoi_coverage")).getInfo() or 0)
+    product_type = "observație individuală"
+    if coverage <= 0:
+        selected = dynamic_world_mode(ee, aoi, period[0], period[1])
+        product_type = "mozaic fallback"
+        acquisition_date = f"{period[0]} - {period[1]}"
+    else:
+        acquisition_date = (
+            ee.Date(selected.get("system:time_start")).format("YYYY-MM-dd").getInfo()
+        )
+    return selected.clip(aoi), {
+        "acquisition_date": acquisition_date,
+        "coverage": round(coverage, 4),
+        "product_type": product_type,
+        "search_period": period,
+    }
+
+
+def _metric_statuses(
+    ee: Any,
+    masks: dict[str, Any],
+    aoi: Any,
+    scale_meters: int,
+) -> dict[str, dict[str, Any]]:
+    result = {}
+    for key, mask in masks.items():
+        try:
+            value = round(_strict_mask_area_km2(ee, mask, aoi, scale_meters), 4)
+            result[key] = {"value": value, "status": "reușit", "error": None}
+        except Exception as exc:
+            result[key] = {"value": None, "status": "eroare", "error": str(exc)}
+    return result
+
+
+def _strict_mask_area_km2(
+    ee: Any,
+    mask: Any,
+    aoi: Any,
+    scale_meters: int,
+) -> float:
+    stats = mask.multiply(ee.Image.pixelArea()).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=aoi,
+        scale=scale_meters,
+        maxPixels=1e9,
+        bestEffort=True,
+    ).getInfo()
+    if not stats:
+        return 0.0
+    value = next(iter(stats.values()))
+    if value is None:
+        return 0.0
+    return float(value) / 1_000_000
+
+
+def _tile_status(image: Any, name: str) -> dict[str, Any]:
+    try:
+        url = ee_tile_url(image, name)
+        if not url:
+            return {
+                "url": None,
+                "status": "tile indisponibil",
+                "error": f"URL indisponibil pentru {name}.",
+            }
+        return {"url": url, "status": "reușit", "error": None}
+    except Exception as exc:
+        return {"url": None, "status": "eroare", "error": str(exc)}
+
+
+def _successful_values(items: dict[str, dict[str, Any]]) -> dict[str, float]:
+    return {
+        key: float(item["value"])
+        for key, item in items.items()
+        if item.get("status") == "reușit" and item.get("value") is not None
+    }
+
+
+def correlate_osm_dynamic_world(
+    ee: Any,
+    dynamic_result: dict[str, Any],
+    osm_impact: dict[str, Any],
+    scale_meters: int = 10,
+    feature_limit: int = 500,
+) -> dict[str, Any]:
+    products = dynamic_result.get("products", {})
+    before = products.get("before")
+    after = products.get("after")
+    if before is None or after is None:
+        return {
+            "status": "indisponibil",
+            "error": "Produsele Dynamic World BEFORE/AFTER lipsesc.",
+            "rows": [],
+        }
+    features = []
+    metadata = {}
+    for layer_id, layer in osm_impact.get("layers", {}).items():
+        source = layer.get("analysis_features", layer.get("features", []))
+        for index, feature in enumerate(source):
+            properties = feature.get("properties", {})
+            if properties.get("status") not in {
+                "Intersectat direct",
+                "În buffer de avertizare",
+            }:
+                continue
+            point = shape(feature.get("geometry") or {}).representative_point()
+            feature_key = f"{layer_id}:{index}"
+            metadata[feature_key] = {
+                "feature_key": feature_key,
+                "name": properties.get("name") or feature_key,
+                "status": properties.get("status"),
+            }
+            features.append(
+                ee.Feature(
+                    ee.Geometry.Point([point.x, point.y]),
+                    {"feature_key": feature_key},
+                )
+            )
+            if len(features) >= feature_limit:
+                break
+        if len(features) >= feature_limit:
+            break
+    if not features:
+        return {"status": "reușit", "error": None, "rows": []}
+    try:
+        collection = ee.FeatureCollection(features)
+        before_info = before.sampleRegions(
+            collection=collection,
+            properties=["feature_key"],
+            scale=scale_meters,
+            geometries=False,
+        ).getInfo()
+        after_info = after.sampleRegions(
+            collection=collection,
+            properties=["feature_key"],
+            scale=scale_meters,
+            geometries=False,
+        ).getInfo()
+        before_labels = _sample_labels(before_info)
+        after_labels = _sample_labels(after_info)
+        rows = []
+        for feature_key, item in metadata.items():
+            before_class = CLASS_NAMES.get(before_labels.get(feature_key), "indisponibil")
+            after_class = CLASS_NAMES.get(after_labels.get(feature_key), "indisponibil")
+            rows.append(
+                {
+                    **item,
+                    "before_class": before_class,
+                    "after_class": after_class,
+                    "transition": f"{before_class} → {after_class}",
+                }
+            )
+        return {"status": "reușit", "error": None, "rows": rows}
+    except Exception as exc:
+        return {"status": "eroare", "error": str(exc), "rows": []}
+
+
+def _sample_labels(payload: dict[str, Any]) -> dict[str, int]:
+    result = {}
+    for feature in payload.get("features", []):
+        properties = feature.get("properties", {})
+        key = properties.get("feature_key")
+        label = properties.get("label")
+        if key is not None and label is not None:
+            result[str(key)] = int(label)
+    return result
 
 
 def dynamic_world_layer_definitions(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -120,7 +412,12 @@ def dynamic_world_layer_definitions(result: dict[str, Any]) -> list[dict[str, An
         ("dynamic_world_before", "Dynamic World BEFORE", "#419bdf", False),
         ("dynamic_world_after", "Dynamic World AFTER", "#397d49", False),
         ("dynamic_world_changes", "Modificări observate Dynamic World", "#facc15", False),
-        ("dynamic_world_new_water", "Apă nouă evidențiată prin Dynamic World", "#0284c7", False),
+        (
+            "dynamic_world_new_water",
+            "Apă nouă evidențiată prin Dynamic World",
+            "#0284c7",
+            True,
+        ),
         ("both_methods", "Apă nouă prin ambele metode", "#16a34a", False),
         ("only_sar", "Apă nouă doar SAR", "#22d3ee", False),
         ("only_dynamic_world", "Apă nouă doar Dynamic World", "#9333ea", False),
@@ -136,7 +433,21 @@ def dynamic_world_layer_definitions(result: dict[str, Any]) -> list[dict[str, An
                 if key == "dynamic_world_after" and acquisition_dates.get("after")
                 else name
             ),
-            "tile_url": tiles.get(key),
+            "tile_url": (
+                tiles.get(key, {}).get("url")
+                if isinstance(tiles.get(key), dict)
+                else tiles.get(key)
+            ),
+            "tile_status": (
+                tiles.get(key, {}).get("status")
+                if isinstance(tiles.get(key), dict)
+                else "reușit" if tiles.get(key) else "tile indisponibil"
+            ),
+            "tile_error": (
+                tiles.get(key, {}).get("error")
+                if isinstance(tiles.get(key), dict)
+                else None
+            ),
             "color": color,
             "shown": shown,
         }

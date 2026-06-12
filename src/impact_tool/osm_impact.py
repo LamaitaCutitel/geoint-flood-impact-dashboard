@@ -12,6 +12,7 @@ STATUS_DIRECT = "Intersectat direct"
 STATUS_BUFFER = "În buffer de avertizare"
 STATUS_UNEXPOSED = "Neexpus"
 STATUS_REFERENCE = "Referință"
+REFERENCE_BUILDING_LIMIT = 750
 
 SYMBOLS = {
     "hospital": "✚",
@@ -127,10 +128,16 @@ def classify_osm_impact(
                 status,
                 properties,
             )
-        classified[layer_id] = {**collection, "features": features}
+        classified[layer_id] = {
+            **collection,
+            "features": features,
+            "analysis_features": features,
+        }
+    _attach_display_features(classified, water, project)
     return {
         "layers": classified,
         "buffer_geometry": mapping(unproject(warning_area)),
+        "water_geometry": water_geometry,
         "metrics": {**metrics, "status_counts": dict(status_counts)},
         "buffer_meters": buffer_meters,
     }
@@ -168,9 +175,13 @@ def visible_impact_layers(
             continue
         if critical_only and layer_id not in {"osm_roads", "osm_bridges", "osm_critical"}:
             continue
+        source_features = collection.get(
+            "display_features",
+            collection.get("features", []),
+        )
         features = [
             feature
-            for feature in collection.get("features", [])
+            for feature in source_features
             if feature.get("properties", {}).get("status") != STATUS_UNEXPOSED
             and (
                 filters.get("reference_buildings", True)
@@ -179,6 +190,57 @@ def visible_impact_layers(
         ]
         result[layer_id] = {**collection, "features": features}
     return result
+
+
+def _attach_display_features(
+    layers: dict[str, dict[str, Any]],
+    water: Any,
+    project: Any,
+) -> None:
+    for layer_id, collection in layers.items():
+        analysis_features = collection.get("analysis_features", [])
+        affected = [
+            feature
+            for feature in analysis_features
+            if feature.get("properties", {}).get("status")
+            in {STATUS_DIRECT, STATUS_BUFFER}
+        ]
+        if layer_id != "osm_buildings":
+            collection["display_features"] = affected
+            continue
+
+        affected_geometries = [
+            project(shape(feature["geometry"]))
+            for feature in affected
+        ]
+        if affected_geometries:
+            from shapely.ops import unary_union
+
+            reference_area = unary_union(affected_geometries).buffer(500)
+        else:
+            reference_area = water.buffer(500)
+
+        references = []
+        for feature in analysis_features:
+            properties = feature.get("properties", {})
+            if properties.get("status") in {STATUS_DIRECT, STATUS_BUFFER}:
+                continue
+            projected = project(shape(feature["geometry"]))
+            if not projected.intersects(reference_area):
+                continue
+            references.append(
+                {
+                    **feature,
+                    "properties": {
+                        **properties,
+                        "status": STATUS_REFERENCE,
+                        "distance_to_water_m": round(projected.distance(water), 1),
+                    },
+                }
+            )
+            if len(references) >= REFERENCE_BUILDING_LIMIT:
+                break
+        collection["display_features"] = affected + references
 
 
 def infrastructure_level(properties: dict[str, Any], layer_id: str) -> str:
