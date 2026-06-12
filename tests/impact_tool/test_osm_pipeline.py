@@ -536,6 +536,74 @@ def test_buffer_limits_and_symbols() -> None:
     assert symbol_for_feature({}, "osm_bridges") == "⌒"
 
 
+def test_projected_geometries_are_reused_when_only_buffer_changes() -> None:
+    from src.impact_tool.osm_impact import _PROJECTED_LAYER_CACHE
+
+    _PROJECTED_LAYER_CACHE.clear()
+    water = {"type": "Point", "coordinates": [27.5, 45.5]}
+    layers = {
+        "osm_roads": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"highway": "primary"},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[27.49, 45.5], [27.51, 45.5]],
+                    },
+                }
+            ],
+        }
+    }
+    classify_osm_impact(
+        layers,
+        water,
+        100,
+        projection_cache_key="same-osm-cache",
+    )
+    first_prepared = _PROJECTED_LAYER_CACHE["same-osm-cache"]
+    classify_osm_impact(
+        layers,
+        water,
+        500,
+        projection_cache_key="same-osm-cache",
+    )
+    assert _PROJECTED_LAYER_CACHE["same-osm-cache"] is first_prepared
+
+
+def test_operational_cache_mode_keeps_only_nearby_candidates() -> None:
+    water = {"type": "Point", "coordinates": [27.5, 45.5]}
+    layers = {
+        "osm_buildings": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"name": "aproape"},
+                    "geometry": {"type": "Point", "coordinates": [27.501, 45.5]},
+                },
+                {
+                    "type": "Feature",
+                    "properties": {"name": "departe"},
+                    "geometry": {"type": "Point", "coordinates": [28.0, 46.0]},
+                },
+            ],
+        }
+    }
+    result = classify_osm_impact(
+        layers,
+        water,
+        250,
+        projection_cache_key="candidate-filter-test",
+    )
+    names = {
+        feature["properties"]["name"]
+        for feature in result["layers"]["osm_buildings"]["analysis_features"]
+    }
+    assert names == {"aproape"}
+
+
 def test_critical_query_contains_all_required_categories() -> None:
     query = build_category_query([27, 45, 28, 46], "critical")
     for tag in ("pharmacy", "kindergarten", "fuel", "healthcare", "emergency", "power"):

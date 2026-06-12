@@ -302,6 +302,11 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
             )
             state.scene_warnings = result.warnings
             state.scene_errors = result.errors
+            state.scene_current_id = (
+                str(state.scene_candidates[0].get("ee_id"))
+                if state.scene_candidates
+                else ""
+            )
             state.scene_query = {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
@@ -322,21 +327,28 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         st.error(error)
     for warning in state.scene_warnings:
         st.warning(warning)
+    st.caption(
+        f"{len(state.scene_candidates)} scene disponibile. "
+        "Exploratorul și selecția perechii sunt afișate în zona principală."
+    )
+
+
+def render_scene_explorer(st: Any, state: ImpactToolState) -> None:
+    st.markdown("### Explorator temporal Sentinel-1")
     if not state.scene_candidates:
-        st.selectbox(
-            "Imagine de referință (BEFORE)",
-            ["Nicio imagine selectată"],
-            disabled=True,
-        )
-        st.selectbox(
-            "Imagine după eveniment (AFTER)",
-            ["Nicio imagine selectată"],
-            disabled=True,
+        st.info(
+            "Configurează parametrii în sidebar și apasă „Caută scene Sentinel-1”."
         )
         return
 
     _render_scene_timeline(st, state.scene_candidates)
+    _render_current_scene(st, state)
     _render_scene_gallery(st, state)
+    _render_scene_pair(st, state)
+
+
+def _render_scene_pair(st: Any, state: ImpactToolState) -> None:
+    st.markdown("#### Perechea BEFORE / AFTER")
 
     scene_ids = [scene["ee_id"] for scene in state.scene_candidates]
     labels = {scene["ee_id"]: scene_label(scene) for scene in state.scene_candidates}
@@ -391,14 +403,32 @@ def _render_scene_selection(st: Any, state: ImpactToolState) -> None:
         "Confirmă imaginile",
         use_container_width=True,
         disabled=not validation["compatible"],
+        key="confirm_scene_pair",
     ):
         confirmation = confirm_scene_pair(before, after, accept_warnings)
         apply_scene_pair(state, before, after, confirmation["confirmed"])
         if confirmation["confirmed"]:
-            reset_comparison(state)
             state.preview_scene_id = ""
             state.preview_scene_tile = ""
             st.rerun()
+    action_left, action_right = st.columns(2)
+    if action_left.button(
+        "Ieși din comparație",
+        use_container_width=True,
+        disabled=not state.scene_compare_active,
+        key="exit_scene_comparison",
+    ):
+        reset_comparison(state)
+        state.comparison_ready = bool(state.before_scene and state.after_scene)
+        st.rerun()
+    if action_right.button(
+        "Curăță selecția",
+        use_container_width=True,
+        disabled=not (state.before_scene or state.after_scene),
+        key="clear_scene_pair",
+    ):
+        apply_scene_pair(state, None, None, False)
+        st.rerun()
 
 
 def _render_scene_timeline(st: Any, scenes: list[dict[str, Any]]) -> None:
@@ -407,17 +437,71 @@ def _render_scene_timeline(st: Any, scenes: list[dict[str, Any]]) -> None:
         f"{entry['date']} ({entry['orbit_pass']})"
         for entry in entries
     )
-    st.caption(f"Timeline: {labels}")
+    st.markdown(
+        f'<div class="scene-timeline"><strong>Cronologie</strong><span>{labels}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_current_scene(st: Any, state: ImpactToolState) -> None:
+    by_id = {
+        str(scene.get("ee_id")): scene
+        for scene in state.scene_candidates
+    }
+    current = by_id.get(state.scene_current_id) or state.scene_candidates[0]
+    state.scene_current_id = str(current.get("ee_id"))
+    image_column, metadata_column = st.columns([2.2, 1.2], gap="large")
+    with image_column:
+        thumbnail = current.get("thumbnail_url")
+        if thumbnail:
+            st.image(
+                thumbnail,
+                caption="Scena Sentinel-1 curentă",
+                use_container_width=True,
+            )
+        else:
+            st.warning("Thumbnail indisponibil pentru scena curentă.")
+    with metadata_column:
+        st.markdown("#### Scena curentă")
+        st.write(f"**Data:** {str(current.get('acquisition_time', ''))[:19]}")
+        st.write(f"**Orbită:** {current.get('orbit_pass', 'necunoscută')}")
+        st.write(f"**Orbită relativă:** {current.get('relative_orbit', 'necunoscută')}")
+        st.write(f"**Polarizare:** {current.get('polarization', 'necunoscută')}")
+        st.write(
+            f"**Acoperire AOI:** {float(current.get('coverage_percent') or 0):.1f}%"
+        )
+        if st.button(
+            "Previzualizează pe hartă",
+            key="preview-current-scene",
+            use_container_width=True,
+        ):
+            _preview_scene(state, current)
+            st.rerun()
+        before_column, after_column = st.columns(2)
+        if before_column.button(
+            "Alege BEFORE",
+            key="choose-current-before",
+            use_container_width=True,
+        ):
+            apply_scene_pair(state, current, state.after_scene, False)
+            st.rerun()
+        if after_column.button(
+            "Alege AFTER",
+            key="choose-current-after",
+            use_container_width=True,
+        ):
+            apply_scene_pair(state, state.before_scene, current, False)
+            st.rerun()
 
 
 def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
     st.markdown("##### Galerie scene")
     visible_scenes = state.scene_candidates[: state.scene_gallery_limit]
-    for row_start in range(0, len(visible_scenes), 2):
-        columns = st.columns(2)
+    for row_start in range(0, len(visible_scenes), 4):
+        columns = st.columns(4)
         for column, scene in zip(
             columns,
-            visible_scenes[row_start : row_start + 2],
+            visible_scenes[row_start : row_start + 4],
         ):
             with column:
                 thumbnail = scene.get("thumbnail_url")
@@ -434,11 +518,11 @@ def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
                 )
                 scene_id = str(scene.get("ee_id"))
                 if st.button(
-                    "Previzualizează",
+                    "Scenă curentă",
                     key=f"preview-scene-{scene_id}",
                     use_container_width=True,
                 ):
-                    _preview_scene(state, scene)
+                    state.scene_current_id = scene_id
                     st.rerun()
                 before_col, after_col = st.columns(2)
                 if before_col.button(
@@ -446,7 +530,7 @@ def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
                     key=f"choose-before-{scene_id}",
                     use_container_width=True,
                 ):
-                    state.before_scene = scene
+                    apply_scene_pair(state, scene, state.after_scene, False)
                     st.session_state["impact_before_scene_select"] = scene_id
                     st.rerun()
                 if after_col.button(
@@ -454,7 +538,7 @@ def _render_scene_gallery(st: Any, state: ImpactToolState) -> None:
                     key=f"choose-after-{scene_id}",
                     use_container_width=True,
                 ):
-                    state.after_scene = scene
+                    apply_scene_pair(state, state.before_scene, scene, False)
                     st.session_state["impact_after_scene_select"] = scene_id
                     st.rerun()
     if state.scene_gallery_limit < len(state.scene_candidates):

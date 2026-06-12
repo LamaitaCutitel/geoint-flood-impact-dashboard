@@ -54,6 +54,7 @@ class ImpactToolState:
     scene_warnings: list[str] = field(default_factory=list)
     scene_query: dict = field(default_factory=dict)
     scene_gallery_limit: int = 8
+    scene_current_id: str = ""
     preview_scene_id: str = ""
     preview_scene_tile: str = ""
     scenes_confirmed: bool = False

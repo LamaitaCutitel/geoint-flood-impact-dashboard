@@ -106,11 +106,9 @@ def test_swipe_has_single_control_and_fallback() -> None:
     from src.impact_tool.map.builder import build_shell_map
 
     html = build_shell_map(None, "Galati", preview_tiles={"before": "a", "after": "b"}).get_root().render()
-    assert html.count("impact-swipe-divider") >= 1
-    assert html.count("Comparatie BEFORE AFTER") == 1
-    assert "leaflet-side-by-side" not in html
+    assert html.count("L.control.sideBySide(") == 1
+    assert "leaflet-side-by-side" in html
     assert "type = 'range'" not in html
-    assert "mousedown" in html
 
 
 class FakeThumbnailImage:
@@ -243,3 +241,18 @@ def test_compare_action_precedes_confirmation() -> None:
 
     source = Path("src/impact_tool/ui/sidebar.py").read_text(encoding="utf-8")
     assert source.index('"Compară imaginile"') < source.index('"Confirmă imaginile"')
+    assert '"Ieși din comparație"' in source
+    assert '"Curăță selecția"' in source
+
+
+def test_large_scene_explorer_is_outside_sidebar_and_uses_four_columns() -> None:
+    from pathlib import Path
+
+    sidebar = Path("src/impact_tool/ui/sidebar.py").read_text(encoding="utf-8")
+    shell = Path("src/impact_tool/ui/shell.py").read_text(encoding="utf-8")
+    assert "def render_scene_explorer" in sidebar
+    assert "render_scene_explorer(st, state)" in shell
+    assert "st.columns(4)" in sidebar
+    assert "Previzualizează pe hartă" in sidebar
+    assert "Scena curentă" in sidebar
+    assert "Perechea BEFORE / AFTER" in sidebar

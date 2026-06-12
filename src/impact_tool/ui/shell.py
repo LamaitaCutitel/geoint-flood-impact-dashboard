@@ -6,6 +6,11 @@ from time import perf_counter
 from typing import Any
 
 from src.gee.gee_auth import local_earthengine_status
+from src.app.county_boundaries import (
+    county_display_name,
+    county_geometry,
+    feature_bbox,
+)
 from src.impact_tool.aoi import geometry_from_drawing
 from src.impact_tool.analysis import (
     execute_analysis,
@@ -21,7 +26,7 @@ from src.impact_tool.report import generate_cached_report, report_filename
 from src.impact_tool.sar import sar_layer_definitions
 from src.impact_tool.state import initialize_state, record_timing, set_aoi
 from src.impact_tool.ui.results import render_result_tabs
-from src.impact_tool.ui.sidebar import render_sidebar
+from src.impact_tool.ui.sidebar import render_scene_explorer, render_sidebar
 
 
 def render_app(st_module: Any | None = None) -> None:
@@ -72,6 +77,7 @@ def render_app(st_module: Any | None = None) -> None:
             state.report_requested = True
 
     counties_geojson, boundary_warnings = render_sidebar(st, state)
+    render_scene_explorer(st, state)
     if state.run_requested:
         progress_bar = st.progress(0, text="Pornire analiză")
         status_box = st.empty()
@@ -91,8 +97,10 @@ def render_app(st_module: Any | None = None) -> None:
             if workflow_status == "osm_complet":
                 status_box.success("Analiza SAR și încărcarea OSM au fost finalizate.")
             elif workflow_status == "osm_parțial":
+                reasons = state.analysis_results.get("osm_partial_reasons", [])
                 status_box.warning(
                     "Analiza SAR a reușit, iar datele OSM sunt disponibile parțial."
+                    + (f" {'; '.join(reasons)}" if reasons else "")
                 )
             elif workflow_status in {"osm_indisponibil", "impact_osm_indisponibil"}:
                 status_box.warning(
@@ -176,13 +184,28 @@ def render_app(st_module: Any | None = None) -> None:
             impact_map,
             use_container_width=True,
             height=640,
-            returned_objects=["last_active_drawing", "all_drawings"],
+            returned_objects=[
+                "last_active_drawing",
+                "all_drawings",
+                "last_object_clicked_tooltip",
+            ],
             key=_map_render_key(state, focus_location),
         )
         if focus_location:
             state.map_focus = []
         drawing = geometry_from_drawing((map_data or {}).get("last_active_drawing"))
         if drawing and set_aoi(state, drawing):
+            st.rerun()
+        clicked_county = _county_feature_from_click(
+            counties_geojson,
+            (map_data or {}).get("last_object_clicked_tooltip"),
+        )
+        if clicked_county and set_county(
+            state,
+            county_display_name(clicked_county),
+            county_geometry(clicked_county),
+            feature_bbox(clicked_county),
+        ):
             st.rerun()
 
     render_result_tabs(st, state)
@@ -343,14 +366,58 @@ def _render_layer_controls(st: Any, state: Any) -> None:
                     state.active_layers.append(layer_id)
                 elif not selected and layer_id in state.active_layers:
                     state.active_layers.remove(layer_id)
+    if state.analysis_results.get("osm_impact"):
+        _render_osm_map_filters(st, state)
     if any_layers:
         st.caption("Harta încarcă numai layerele bifate.")
+
+
+def _render_osm_map_filters(st: Any, state: Any) -> None:
+    st.markdown("##### Filtre OSM")
+    labels = {
+        "buildings": "Clădiri",
+        "roads": "Drumuri",
+        "railways": "Căi ferate",
+        "bridges": "Poduri",
+        "critical": "Obiective critice",
+        "reference_buildings": "Clădiri de referință",
+    }
+    for key, label in labels.items():
+        state.osm_filters[key] = st.checkbox(
+            label,
+            value=state.osm_filters.get(key, True),
+            key=f"osm_map_filter_{key}",
+        )
+    state.critical_mode = st.toggle(
+        "Doar impact critic",
+        value=state.critical_mode,
+        key="osm_map_critical_mode",
+        help="Păstrează apa nouă SAR, bufferul, drumurile, podurile și obiectivele critice.",
+    )
 
 
 def _selected_buffer_geometry(state: Any) -> dict[str, Any] | None:
     if "buffer" not in state.active_layers:
         return None
     return (state.analysis_results.get("osm_impact") or {}).get("buffer_geometry")
+
+
+def _county_feature_from_click(
+    counties_geojson: dict[str, Any] | None,
+    tooltip: Any,
+) -> dict[str, Any] | None:
+    clicked_name = str(tooltip or "").strip()
+    if not counties_geojson or not clicked_name:
+        return None
+    for feature in counties_geojson.get("features", []):
+        properties = feature.get("properties", {})
+        names = {
+            str(properties.get(key) or "").strip()
+            for key in ("NAME_LATN", "NUTS_NAME", "NAME")
+        }
+        if clicked_name in names or clicked_name == county_display_name(feature):
+            return feature
+    return None
 
 
 def _inject_styles(st: Any) -> None:
@@ -373,6 +440,12 @@ def _inject_styles(st: Any) -> None:
             border:1px solid #166534; background:#052e16; color:#bbf7d0;
             border-radius:999px; padding:7px 11px; font-size:.82rem; white-space:nowrap;
           }
+          .scene-timeline {
+            background:#111827; border:1px solid #334155; color:#e5e7eb;
+            display:flex; flex-direction:column; gap:8px; margin:4px 0 14px;
+            max-height:110px; overflow:auto; padding:12px;
+          }
+          .scene-timeline span { color:#cbd5e1; line-height:1.6; }
           .impact-sidebar-title, .layers-title {
             color:#f8fafc; font-size:1rem; font-weight:700; margin-bottom:10px;
           }

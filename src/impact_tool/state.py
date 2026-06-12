@@ -55,6 +55,7 @@ def reset_scene_selection(state: ImpactToolState) -> None:
     state.scene_errors.clear()
     state.scene_warnings.clear()
     state.scene_gallery_limit = 8
+    state.scene_current_id = ""
     state.scenes_confirmed = False
     reset_comparison(state)
     invalidate_report(state)
@@ -102,13 +103,16 @@ def apply_scene_pair(
         (state.before_scene or {}).get("ee_id") != (before or {}).get("ee_id")
         or (state.after_scene or {}).get("ee_id") != (after or {}).get("ee_id")
     )
+    if changed:
+        reset_comparison(state)
+        reset_analysis_results(state)
     state.before_scene = before
     state.after_scene = after
     state.scenes_confirmed = confirmed
     state.comparison_ready = bool(before and after and not confirmed)
-    if changed:
+    if confirmed:
         reset_comparison(state)
-        reset_analysis_results(state)
+    if changed:
         state.cache_events.append("Scenele s-au schimbat; rezultatele dependente au fost invalidate.")
 
 

@@ -48,18 +48,32 @@ def legend_entries(
 ) -> list[tuple[str, str]]:
     entries = [("Județ / AOI", "#2563eb")]
     for layer in analysis_layers or []:
-        if layer.get("shown"):
-            entries.append((layer["name"], layer.get("color", "#64748b")))
+        entries.append((layer["name"], layer.get("color", "#64748b")))
     if has_buffer:
         entries.append(("Buffer de avertizare", "#f59e0b"))
-    osm_colors = {
-        "osm_buildings": ("Clădiri potențial expuse", "#dc2626"),
-        "osm_roads": ("Drumuri potențial expuse", "#f97316"),
-        "osm_railways": ("Căi ferate intersectate", "#7c3aed"),
-        "osm_bridges": ("Poduri intersectate", "#0ea5e9"),
-        "osm_critical": ("Obiective critice", "#dc2626"),
+    osm_entries = {
+        "osm_buildings": (
+            ("Clădiri intersectate direct", "#dc2626"),
+            ("Clădiri în buffer", "#f97316"),
+            ("Clădiri de referință", "#64748b"),
+        ),
+        "osm_roads": (
+            ("Drumuri intersectate direct", "#dc2626"),
+            ("Drumuri în buffer", "#f97316"),
+        ),
+        "osm_railways": (
+            ("Căi ferate intersectate direct", "#dc2626"),
+            ("Căi ferate în buffer", "#f97316"),
+        ),
+        "osm_bridges": (
+            ("Poduri intersectate direct", "#dc2626"),
+            ("Poduri în buffer", "#f97316"),
+        ),
+        "osm_critical": (
+            ("Obiective critice intersectate direct", "#dc2626"),
+            ("Obiective critice în buffer", "#f97316"),
+        ),
     }
     for layer_id in (osm_layers or {}):
-        if layer_id in osm_colors:
-            entries.append(osm_colors[layer_id])
+        entries.extend(osm_entries.get(layer_id, ()))
     return entries

@@ -89,7 +89,32 @@ def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
             st.json(tile_errors, expanded=False)
     st.subheader("Diferențe observate Dynamic World")
     st.bar_chart(result.get("transition_values", {}))
-    st.json(result.get("metrics", {}), expanded=False)
+    metric_values = result.get("metric_values", {})
+    metric_columns = st.columns(3)
+    metric_columns[0].metric(
+        "Suprapunere SAR × Dynamic World",
+        f"{float(metric_values.get('sar_dynamic_world_new_water_overlap_area_km2') or 0):.3f} km²",
+    )
+    metric_columns[1].metric(
+        "Apă nouă doar SAR",
+        f"{float(metric_values.get('new_water_only_sar_area_km2') or 0):.3f} km²",
+    )
+    metric_columns[2].metric(
+        "Apă nouă doar Dynamic World",
+        f"{float(metric_values.get('new_water_only_dynamic_world_area_km2') or 0):.3f} km²",
+    )
+    osm_correlation = state.analysis_results.get("osm_dynamic_world") or {}
+    st.markdown("#### Corelare OSM × Dynamic World")
+    if osm_correlation.get("rows"):
+        st.dataframe(
+            osm_correlation["rows"],
+            use_container_width=True,
+            hide_index=True,
+        )
+    elif osm_correlation.get("error"):
+        st.warning(osm_correlation["error"])
+    else:
+        st.caption("Corelarea OSM × Dynamic World nu are rezultate disponibile.")
 
 
 def _render_osm(st: Any, state: ImpactToolState) -> None:
@@ -105,27 +130,7 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
         help="Păstrează pe hartă infrastructura esențială și importantă.",
         key="osm_presentation_mode",
     )
-    st.markdown("#### Filtre OSM")
-    columns = st.columns(6)
-    labels = {
-        "buildings": "Clădiri",
-        "roads": "Drumuri",
-        "railways": "Căi ferate",
-        "bridges": "Poduri",
-        "critical": "Obiective critice",
-        "reference_buildings": "Clădiri de referință",
-    }
-    for column, (key, label) in zip(columns, labels.items()):
-        state.osm_filters[key] = column.checkbox(
-            label,
-            value=state.osm_filters.get(key, True),
-            key=f"osm_filter_{key}",
-        )
-    state.critical_mode = st.toggle(
-        "Afișează doar impactul critic",
-        value=state.critical_mode,
-        help="Păstrează apa nouă SAR, bufferul, drumurile, podurile și obiectivele critice.",
-    )
+    st.caption("Filtrele de vizibilitate OSM sunt în coloana de layere a hărții.")
     for category, status in state.osm_status.items():
         if status.get("ok"):
             st.caption(
@@ -221,7 +226,7 @@ def _render_map_tools(st: Any, state: ImpactToolState) -> None:
             "revenire la România, centrare pe județ și ecran complet."
         )
         columns = st.columns(3)
-        if columns[0].button("Curăță scenele", key="clear_scene_pair"):
+        if columns[0].button("Curăță scenele", key="clear_all_scenes"):
             reset_scene_selection(state)
             st.rerun()
         if columns[1].button("Curăță rezultatele", key="clear_analysis_results"):

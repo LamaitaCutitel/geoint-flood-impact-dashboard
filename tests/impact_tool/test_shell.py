@@ -103,7 +103,7 @@ def test_shell_has_single_leaflet_draw_control_and_no_analysis_layers():
     assert source.count("Draw(") == 1
     assert "SAR ratio" not in source
     assert "SAR difference" not in source
-    assert "SideBySideLayers" not in source
+    assert source.count("SideBySideLayers(") == 1
     assert "DynamicCompareControl" not in source
 
 

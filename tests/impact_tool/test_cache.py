@@ -15,6 +15,7 @@ def test_default_cache_root_is_absolute_and_shared_with_prewarm() -> None:
     from scripts import prewarm_galati_cache
 
     assert CACHE_ROOT.is_absolute()
+    assert CACHE_ROOT == (prewarm_galati_cache.PROJECT_ROOT / "cache").resolve()
     assert PersistentCache().root == prewarm_galati_cache.PersistentCache().root
 from src.impact_tool.models import ImpactToolState
 from src.impact_tool.state import update_buffer

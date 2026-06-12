@@ -121,7 +121,7 @@ def test_final_offline_galati_workflow(tmp_path, monkeypatch) -> None:
             "sar_water_after": {"name": "SAR AFTER", "url": "https://tiles/after"},
         },
     ).get_root().render()
-    assert "Comparatie BEFORE AFTER" in scene_html
+    assert scene_html.count("L.control.sideBySide(") == 1
     assert "Compară layerele tematice" in result_html
 
     required_tiles = {

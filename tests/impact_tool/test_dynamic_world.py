@@ -233,3 +233,10 @@ def test_osm_dynamic_world_correlation_uses_before_after_classes() -> None:
     assert result["rows"][0]["before_class"] == "culturi"
     assert result["rows"][0]["after_class"] == "apă"
     assert result["rows"][0]["transition"] == "culturi → apă"
+
+
+def test_dynamic_world_ui_exposes_both_correlations() -> None:
+    source = Path("src/impact_tool/ui/results.py").read_text(encoding="utf-8")
+    assert "Suprapunere SAR × Dynamic World" in source
+    assert "Corelare OSM × Dynamic World" in source
+    assert "dataframe" in source

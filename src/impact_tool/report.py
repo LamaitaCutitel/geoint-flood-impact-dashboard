@@ -36,7 +36,7 @@ from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import ImpactToolState
 
 
-REPORT_VERSION = "4.0"
+REPORT_VERSION = "4.1"
 MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
@@ -152,6 +152,12 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
     _section(story, styles, "6. Rezultatele SAR", "")
     story.append(_metrics_table((state.analysis_results.get("sar") or {}).get("metrics", {})))
     _section(story, styles, "7. Dynamic World", _dynamic_world_summary(state))
+    _section(
+        story,
+        styles,
+        "7.1 Disponibilitatea layerelor Dynamic World",
+        _dynamic_world_tile_summary(state),
+    )
     _section(story, styles, "8. Corelare SAR × Dynamic World", _correlation_summary(state))
     _section(story, styles, "9. Impact OSM", _osm_summary(state))
     _section(
@@ -443,6 +449,35 @@ def _dynamic_world_summary(state: ImpactToolState) -> str:
         f"acoperire {float(coverage.get('after') or 0) * 100:.1f}%, "
         f"produs {product_types.get('after', 'indisponibil')}."
     )
+
+
+def _dynamic_world_tile_summary(state: ImpactToolState) -> str:
+    result = state.analysis_results.get("dynamic_world") or {}
+    tiles = result.get("tiles") or {}
+    if not tiles:
+        return "Nu există informații despre tile-urile Dynamic World."
+    labels = {
+        "dynamic_world_before": "BEFORE",
+        "dynamic_world_after": "AFTER",
+        "dynamic_world_changes": "diferențe observate",
+        "dynamic_world_new_water": "apă nouă",
+        "both_methods": "suprapunere SAR × Dynamic World",
+        "only_sar": "doar SAR",
+        "only_dynamic_world": "doar Dynamic World",
+    }
+    rows = []
+    for layer_id, tile in tiles.items():
+        if isinstance(tile, dict):
+            status = tile.get("status", "indisponibil")
+            error = tile.get("error")
+        else:
+            status = "reușit" if tile else "tile indisponibil"
+            error = None
+        detail = f"{labels.get(layer_id, layer_id)}: {status}"
+        if error:
+            detail += f" ({error})"
+        rows.append(detail)
+    return "; ".join(rows) + "."
 
 
 def _correlation_summary(state: ImpactToolState) -> str:

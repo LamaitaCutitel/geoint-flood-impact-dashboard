@@ -208,3 +208,35 @@ def test_osm_query_area_stays_at_1000_m_when_analytic_buffer_changes(
     state.buffer_meters = 1000
     assert analysis.execute_osm_loading(state)
     assert buffer_calls == [1000, 1000]
+
+
+def test_osm_complete_requires_ok_and_complete_for_every_category() -> None:
+    assert analysis._osm_load_status(
+        {
+            "buildings": {"ok": True, "completeness": "complet"},
+            "roads": {"ok": True, "completeness": "complet"},
+        }
+    ) == "osm_complet"
+    assert analysis._osm_load_status(
+        {
+            "buildings": {"ok": True, "completeness": "complet"},
+            "roads": {"ok": True, "completeness": "posibil incomplet"},
+        }
+    ) == "osm_parțial"
+    assert analysis._osm_load_status(
+        {
+            "buildings": {"ok": False, "error": "timeout"},
+            "roads": {"ok": False, "error": "timeout"},
+        }
+    ) == "osm_indisponibil"
+
+
+def test_osm_partial_reasons_name_category_and_cause() -> None:
+    reasons = analysis._osm_partial_reasons(
+        {
+            "roads": {"ok": True, "completeness": "posibil incomplet"},
+            "bridges": {"ok": False, "error": "timeout Overpass"},
+        }
+    )
+    assert "roads: completitudine posibil incomplet" in reasons
+    assert "bridges: timeout Overpass" in reasons

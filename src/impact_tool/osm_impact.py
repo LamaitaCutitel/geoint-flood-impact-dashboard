@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import Any
 
 from pyproj import Transformer
 from shapely.geometry import mapping, shape
 from shapely.ops import transform
+from shapely.prepared import prep
 from shapely.strtree import STRtree
 
 
@@ -15,6 +16,8 @@ STATUS_UNEXPOSED = "Neexpus"
 STATUS_REFERENCE = "Referință"
 STATUS_CONTEXT = "Context"
 REFERENCE_BUILDING_LIMIT = 750
+PROJECTED_CACHE_LIMIT = 4
+_PROJECTED_LAYER_CACHE: OrderedDict[str, dict[str, dict[str, Any]]] = OrderedDict()
 
 SYMBOLS = {
     "hospital": "✚",
@@ -55,6 +58,7 @@ def classify_osm_impact(
     water_geometry: dict[str, Any],
     buffer_meters: int,
     active_geometry: dict[str, Any] | None = None,
+    projection_cache_key: str = "",
 ) -> dict[str, Any]:
     if not 1 <= buffer_meters <= 1000:
         raise ValueError("Bufferul trebuie să fie între 1 și 1000 m.")
@@ -66,6 +70,10 @@ def classify_osm_impact(
     reference_area = water.buffer(500)
     buffer_only = warning_area.difference(water)
     active_area = project(shape(active_geometry)) if active_geometry else None
+    water_prepared = prep(water)
+    warning_prepared = prep(warning_area)
+    reference_prepared = prep(reference_area)
+    active_prepared = prep(active_area) if active_area is not None else None
     classified: dict[str, dict[str, Any]] = {}
     status_counts: Counter[str] = Counter()
     metrics = {
@@ -85,13 +93,18 @@ def classify_osm_impact(
         "critical_buffer": 0,
         "road_classes": {},
     }
+    prepared_layers = _prepare_projected_layers(
+        layers,
+        project,
+        projection_cache_key,
+        unproject(water.buffer(1000)) if projection_cache_key else None,
+    )
     for layer_id, collection in layers.items():
         features = []
-        source_features = collection.get("features", [])
-        projected_geometries = [
-            project(shape(feature["geometry"])) for feature in source_features
-        ]
-        spatial_index = STRtree(projected_geometries) if projected_geometries else None
+        prepared = prepared_layers[layer_id]
+        source_features = prepared["features"]
+        projected_geometries = prepared["geometries"]
+        spatial_index = prepared["tree"]
         direct_candidates = _query_indices(
             spatial_index,
             projected_geometries,
@@ -102,14 +115,25 @@ def classify_osm_impact(
             projected_geometries,
             warning_area,
         )
-        for index, (feature, projected) in enumerate(
-            zip(source_features, projected_geometries)
-        ):
-            if index in direct_candidates and projected.intersects(water):
+        candidate_indices = set(range(len(source_features)))
+        if projection_cache_key:
+            candidate_indices = set(warning_candidates)
+            if layer_id == "osm_buildings":
+                candidate_indices.update(
+                    _query_indices(
+                        spatial_index,
+                        projected_geometries,
+                        reference_area,
+                    )
+                )
+        for index in sorted(candidate_indices):
+            feature = source_features[index]
+            projected = projected_geometries[index]
+            if index in direct_candidates and water_prepared.intersects(projected):
                 status = STATUS_DIRECT
-            elif index in warning_candidates and projected.intersects(warning_area):
+            elif index in warning_candidates and warning_prepared.intersects(projected):
                 status = STATUS_BUFFER
-            elif layer_id == "osm_buildings" and projected.intersects(reference_area):
+            elif layer_id == "osm_buildings" and reference_prepared.intersects(projected):
                 status = STATUS_REFERENCE
             else:
                 status = STATUS_UNEXPOSED
@@ -118,37 +142,59 @@ def classify_osm_impact(
             properties["distance_to_water_m"] = round(projected.distance(water), 1)
             properties["symbol"] = symbol_for_feature(properties, layer_id)
             properties["outside_active_area"] = bool(
-                active_area is not None and not projected.intersects(active_area)
+                active_prepared is not None
+                and not active_prepared.intersects(projected)
             )
             properties["infrastructure_level"] = infrastructure_level(
                 properties,
                 layer_id,
             )
-            clipped = projected.intersection(warning_area)
-            direct_geometry = projected.intersection(water)
-            buffer_geometry = projected.intersection(buffer_only)
-            context_geometry = projected.difference(warning_area)
+            direct_geometry = (
+                projected.intersection(water)
+                if status == STATUS_DIRECT
+                else None
+            )
+            buffer_geometry = (
+                projected.intersection(buffer_only)
+                if status in {STATUS_DIRECT, STATUS_BUFFER}
+                and layer_id in {"osm_roads", "osm_railways"}
+                else None
+            )
+            clipped = (
+                projected.intersection(warning_area)
+                if status in {STATUS_DIRECT, STATUS_BUFFER}
+                and layer_id in {"osm_roads", "osm_railways", "osm_bridges"}
+                else direct_geometry
+            )
+            context_geometry = (
+                projected.difference(warning_area)
+                if status in {STATUS_DIRECT, STATUS_BUFFER}
+                and layer_id in {"osm_roads", "osm_railways"}
+                else None
+            )
             features.append(
                 {
                     **feature,
                     "properties": properties,
                     "original_geometry": feature["geometry"],
                     "clipped_geometry": (
-                        mapping(unproject(clipped)) if not clipped.is_empty else None
+                        mapping(unproject(clipped))
+                        if clipped is not None and not clipped.is_empty
+                        else None
                     ),
                     "direct_geometry": (
                         mapping(unproject(direct_geometry))
-                        if not direct_geometry.is_empty
+                        if direct_geometry is not None and not direct_geometry.is_empty
                         else None
                     ),
                     "buffer_geometry": (
                         mapping(unproject(buffer_geometry))
-                        if not buffer_geometry.is_empty
+                        if buffer_geometry is not None and not buffer_geometry.is_empty
                         else None
                     ),
                     "context_geometry": (
                         mapping(unproject(context_geometry))
-                        if not context_geometry.is_empty
+                        if context_geometry is not None and not context_geometry.is_empty
                         else None
                     ),
                 }
@@ -162,6 +208,8 @@ def classify_osm_impact(
                 buffer_only,
                 status,
                 properties,
+                direct_geometry,
+                buffer_geometry,
             )
         classified[layer_id] = {
             **collection,
@@ -176,6 +224,39 @@ def classify_osm_impact(
         "metrics": {**metrics, "status_counts": dict(status_counts)},
         "buffer_meters": buffer_meters,
     }
+
+
+def _prepare_projected_layers(
+    layers: dict[str, dict[str, Any]],
+    project: Any,
+    cache_key: str,
+    candidate_area: Any | None = None,
+) -> dict[str, dict[str, Any]]:
+    if cache_key and cache_key in _PROJECTED_LAYER_CACHE:
+        prepared = _PROJECTED_LAYER_CACHE.pop(cache_key)
+        _PROJECTED_LAYER_CACHE[cache_key] = prepared
+        return prepared
+    prepared = {}
+    candidate_prepared = prep(candidate_area) if candidate_area is not None else None
+    for layer_id, collection in layers.items():
+        features = []
+        geometries = []
+        for feature in collection.get("features", []):
+            geometry = shape(feature["geometry"])
+            if candidate_prepared is not None and not candidate_prepared.intersects(geometry):
+                continue
+            features.append(feature)
+            geometries.append(project(geometry))
+        prepared[layer_id] = {
+            "features": features,
+            "geometries": geometries,
+            "tree": STRtree(geometries) if geometries else None,
+        }
+    if cache_key:
+        _PROJECTED_LAYER_CACHE[cache_key] = prepared
+        while len(_PROJECTED_LAYER_CACHE) > PROJECTED_CACHE_LIMIT:
+            _PROJECTED_LAYER_CACHE.popitem(last=False)
+    return prepared
 
 
 def symbol_for_feature(properties: dict[str, Any], layer_id: str) -> str:
@@ -359,6 +440,8 @@ def _accumulate_metrics(
     buffer_only: Any,
     status: str,
     properties: dict[str, Any],
+    direct_geometry: Any | None = None,
+    buffer_geometry: Any | None = None,
 ) -> None:
     suffix = "direct" if status == STATUS_DIRECT else "buffer" if status == STATUS_BUFFER else ""
     if not suffix:
@@ -367,15 +450,23 @@ def _accumulate_metrics(
         metrics[f"buildings_{suffix}"] += 1
         metrics["buildings_area_m2"] += round(geometry.area, 1)
         if status == STATUS_DIRECT:
-            overlap = geometry.intersection(water).area
+            overlap = direct_geometry.area if direct_geometry is not None else 0
             complete = geometry.within(water)
             metrics["buildings_overlap_m2"] += round(overlap, 1)
             metrics["buildings_complete" if complete else "buildings_partial"] += 1
             properties["intersection_type"] = "completă" if complete else "parțială"
     elif layer_id in {"osm_roads", "osm_railways"}:
         prefix = "roads" if layer_id == "osm_roads" else "railways"
-        direct_km = geometry.intersection(water).length / 1000
-        buffer_km = geometry.intersection(buffer_only).length / 1000
+        direct_km = (
+            direct_geometry.length / 1000
+            if direct_geometry is not None
+            else 0
+        )
+        buffer_km = (
+            buffer_geometry.length / 1000
+            if buffer_geometry is not None
+            else 0
+        )
         metrics[f"{prefix}_direct_km"] += round(direct_km, 3)
         metrics[f"{prefix}_buffer_km"] += round(buffer_km, 3)
         if layer_id == "osm_roads":

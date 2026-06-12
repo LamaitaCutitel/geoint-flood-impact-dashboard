@@ -170,6 +170,7 @@ def add_osm_layers(
                 point = shape(feature.get("geometry") or {}).representative_point()
                 properties = feature.get("properties", {})
                 name = escape(str(properties.get("name") or _feature_label(layer_id)))
+                category = escape(str(_feature_category(properties, layer_id)))
                 status = escape(str(properties.get("status") or "Necunoscut"))
                 distance = escape(str(properties.get("distance_to_water_m", "indisponibil")))
                 folium.Marker(
@@ -184,7 +185,8 @@ def add_osm_layers(
                     ),
                     tooltip=f"{name} · {status}",
                     popup=folium.Popup(
-                        f"<strong>{name}</strong><br>Status: {status}<br>"
+                        f"<strong>{name}</strong><br>Categorie: {category}<br>"
+                        f"Status: {status}<br>"
                         f"Distanță până la apă: {distance} m<br>"
                         "Sursă: OpenStreetMap",
                         max_width=320,
@@ -254,6 +256,19 @@ def _svg_icon(label: str, color: str) -> str:
 
 def _feature_label(layer_id: str) -> str:
     return "Pod" if layer_id == "osm_bridges" else "Obiectiv critic"
+
+
+def _feature_category(properties: dict[str, Any], layer_id: str) -> str:
+    if layer_id == "osm_bridges":
+        return "Pod"
+    tags = properties.get("tags") if isinstance(properties.get("tags"), dict) else properties
+    return str(
+        tags.get("amenity")
+        or tags.get("healthcare")
+        or tags.get("emergency")
+        or tags.get("power")
+        or "Obiectiv critic"
+    )
 
 
 def _osm_tooltip(features: list[dict[str, Any]]) -> folium.GeoJsonTooltip | None:

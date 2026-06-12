@@ -24,6 +24,7 @@ def test_streamlit_shell_renders_without_exception():
     rendered_markdown = "\n".join(item.value for item in app.markdown)
     assert "Selectează județul" in rendered_markdown
     assert "Generează raportul PDF" in rendered_markdown
+    assert "Explorator temporal Sentinel-1" in rendered_markdown
 
 
 def test_streamlit_controls_start_disabled():

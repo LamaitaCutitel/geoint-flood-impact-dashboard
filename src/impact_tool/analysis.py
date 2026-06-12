@@ -15,6 +15,7 @@ from src.impact_tool.models import ImpactToolState
 from src.impact_tool.osm import (
     load_cached_osm_layers,
     load_osm_categories,
+    osm_geometry_hash,
     retry_osm_category,
 )
 from src.impact_tool.osm_impact import buffered_geometry, classify_osm_impact
@@ -242,12 +243,12 @@ def execute_osm_loading(
         successful = [
             status for status in state.osm_status.values() if status.get("ok")
         ]
-        if successful and len(successful) == len(state.osm_status):
-            state.analysis_results["osm_load_status"] = "osm_complet"
-        elif successful:
-            state.analysis_results["osm_load_status"] = "osm_parțial"
-        else:
-            state.analysis_results["osm_load_status"] = "osm_indisponibil"
+        state.analysis_results["osm_load_status"] = _osm_load_status(
+            state.osm_status
+        )
+        state.analysis_results["osm_partial_reasons"] = _osm_partial_reasons(
+            state.osm_status
+        )
         record_timing(state, "cache OSM", perf_counter() - osm_started)
         state.cache_events.append("Încărcarea OSM pe categorii a fost finalizată.")
         _progress(
@@ -273,7 +274,7 @@ def execute_osm_loading(
                 )
         return bool(successful)
     except Exception as exc:
-        state.analysis_results["osm_load_status"] = "eroare"
+        state.analysis_results["osm_load_status"] = "osm_indisponibil"
         state.analysis_error = (
             "Analiza raster a fost finalizată, dar datele OSM nu au putut fi "
             f"încărcate: {exc}"
@@ -282,6 +283,34 @@ def execute_osm_loading(
     finally:
         state.osm_load_requested = False
         state.osm_retry_category = ""
+
+
+def _osm_load_status(statuses: dict[str, dict[str, Any]]) -> str:
+    if not statuses:
+        return "osm_indisponibil"
+    if all(
+        status.get("ok") is True
+        and status.get("completeness") == "complet"
+        for status in statuses.values()
+    ):
+        return "osm_complet"
+    if any(status.get("ok") for status in statuses.values()):
+        return "osm_parțial"
+    return "osm_indisponibil"
+
+
+def _osm_partial_reasons(
+    statuses: dict[str, dict[str, Any]],
+) -> list[str]:
+    reasons = []
+    for category, status in statuses.items():
+        if not status.get("ok"):
+            reason = status.get("error") or "categoria nu a putut fi încărcată"
+            reasons.append(f"{category}: {reason}")
+        elif status.get("completeness") != "complet":
+            completeness = status.get("completeness") or "necunoscută"
+            reasons.append(f"{category}: completitudine {completeness}")
+    return reasons
 
 
 def recalculate_osm_impact(state: ImpactToolState) -> bool:
@@ -301,6 +330,14 @@ def recalculate_osm_impact(state: ImpactToolState) -> bool:
         water_geometry,
         state.buffer_meters,
         active_geometry=state.active_geometry,
+        projection_cache_key=(
+            osm_geometry_hash(water_geometry)
+            + "|"
+            + "|".join(
+                f"{layer_id}:{cache_key}"
+                for layer_id, cache_key in sorted(cache_refs.items())
+            )
+        ),
     )
     compact_layers = {}
     for layer_id, collection in impact.get("layers", {}).items():

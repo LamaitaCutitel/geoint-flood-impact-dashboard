@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import folium
-from folium.plugins import Draw, Fullscreen, MeasureControl
+from folium.plugins import Draw, Fullscreen, MeasureControl, SideBySideLayers
 
 from src.app.county_boundaries import bbox_center, feature_bbox, selected_county_feature
 from src.impact_tool.map.layers import (
@@ -14,7 +14,7 @@ from src.impact_tool.map.layers import (
     add_tile_layers,
 )
 from src.impact_tool.map.legend import ImpactLegend, legend_entries
-from src.impact_tool.map.swipe import LayerCompareControl, SarSwipeControl
+from src.impact_tool.map.swipe import LayerCompareControl
 from src.impact_tool.map.tools import FocusLocation, NavigationControl
 
 
@@ -168,7 +168,23 @@ def build_shell_map(
         )
     ).add_to(folium_map)
     if preview_tiles and preview_tiles.get("before") and preview_tiles.get("after"):
-        SarSwipeControl(preview_tiles["before"], preview_tiles["after"]).add_to(folium_map)
+        before_layer = folium.TileLayer(
+            tiles=preview_tiles["before"],
+            attr="Google Earth Engine",
+            name="Sentinel-1 BEFORE",
+            overlay=True,
+            control=False,
+            show=True,
+        ).add_to(folium_map)
+        after_layer = folium.TileLayer(
+            tiles=preview_tiles["after"],
+            attr="Google Earth Engine",
+            name="Sentinel-1 AFTER",
+            overlay=True,
+            control=False,
+            show=True,
+        ).add_to(folium_map)
+        SideBySideLayers(before_layer, after_layer).add_to(folium_map)
     elif layer_compare_layers:
         LayerCompareControl(
             layer_compare_layers,

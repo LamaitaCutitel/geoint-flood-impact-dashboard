@@ -7,6 +7,7 @@ from src.impact_tool.models import ImpactToolState
 from src.impact_tool.report import (
     MANDATORY_NOTE,
     _chart_datasets,
+    _dynamic_world_tile_summary,
     generate_cached_report,
     generate_report_pdf,
     report_filename,
@@ -238,3 +239,23 @@ def test_pdf_rapid_detailed_and_missing_data() -> None:
     }
     assert generate_report_pdf(rapid).startswith(b"%PDF")
     assert generate_report_pdf(detailed).startswith(b"%PDF")
+
+
+def test_dynamic_world_tile_errors_are_human_readable_in_report() -> None:
+    state = _state()
+    state.analysis_results["dynamic_world"] = {
+        "tiles": {
+            "dynamic_world_before": {
+                "status": "tile indisponibil",
+                "error": "URL indisponibil",
+            },
+            "dynamic_world_after": {
+                "status": "reușit",
+                "url": "https://tiles/after",
+            },
+        }
+    }
+    summary = _dynamic_world_tile_summary(state)
+    assert "BEFORE: tile indisponibil (URL indisponibil)" in summary
+    assert "AFTER: reușit" in summary
+    assert "{" not in summary

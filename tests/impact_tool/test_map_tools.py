@@ -7,6 +7,7 @@ from src.impact_tool.osm_impact import visible_impact_layers
 from src.impact_tool.ui.shell import (
     _analysis_layers,
     _comparison_layers,
+    _county_feature_from_click,
     _map_render_key,
 )
 import folium
@@ -48,7 +49,7 @@ def test_only_one_compare_divider_can_be_active() -> None:
         layer_compare_active=True,
     ).get_root().render()
     assert "LayerCompareControl" not in html
-    assert "Comparatie BEFORE AFTER" in html
+    assert html.count("L.control.sideBySide(") == 1
 
 
 def test_comparison_layers_include_required_basemaps_and_products() -> None:
@@ -292,6 +293,36 @@ def test_only_selected_analysis_layers_are_sent_to_map() -> None:
     assert [layer["id"] for layer in layers] == ["sar_new_water"]
 
 
+def test_county_click_resolves_feature_for_selection_and_zoom() -> None:
+    counties = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"NAME_LATN": "Galați"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [[27, 45], [28, 45], [28, 46], [27, 46], [27, 45]]
+                    ],
+                },
+            }
+        ],
+    }
+    selected = _county_feature_from_click(counties, "Galați")
+    assert selected is counties["features"][0]
+    assert _county_feature_from_click(counties, "Brăila") is None
+
+
+def test_osm_filters_render_before_map_build() -> None:
+    from pathlib import Path
+
+    source = Path("src/impact_tool/ui/shell.py").read_text(encoding="utf-8")
+    assert source.index("_render_layer_controls(st, state)") < source.index(
+        "impact_map = build_shell_map("
+    )
+
+
 def test_no_analysis_tiles_are_sent_when_all_layers_are_disabled() -> None:
     state = ImpactToolState(
         active_layers=[],
@@ -339,6 +370,9 @@ def test_critical_asset_has_one_clustered_svg_marker() -> None:
     assert html.count("L.marker(") == 1
     assert "markerClusterGroup" in html
     assert "svg xmlns=" in html
+    assert "Categorie:" in html
+    assert "Distanță până la apă:" in html
+    assert "Sursă: OpenStreetMap" in html
 
 
 def test_bridge_has_line_and_centroid_icon() -> None:
@@ -437,9 +471,10 @@ def test_reference_filter_and_presentation_mode() -> None:
 def test_osm_ui_contains_zoom_completeness_and_hidden_qa() -> None:
     from pathlib import Path
 
-    source = Path("src/impact_tool/ui/results.py").read_text(encoding="utf-8")
-    assert "Mod prezentare" in source
-    assert "Clădiri de referință" in source
-    assert 'button("Zoom"' in source
-    assert "completitudine" in source
-    assert 'expander("Mod QA", expanded=False)' in source
+    results_source = Path("src/impact_tool/ui/results.py").read_text(encoding="utf-8")
+    shell_source = Path("src/impact_tool/ui/shell.py").read_text(encoding="utf-8")
+    assert "Mod prezentare" in results_source
+    assert "Clădiri de referință" in shell_source
+    assert 'button("Zoom"' in results_source
+    assert "completitudine" in results_source
+    assert 'expander("Mod QA", expanded=False)' in results_source
