@@ -2,6 +2,7 @@ from src.gee.sar_water_masks import (
     overlap_percent,
     sar_dynamic_world_overlap,
     sar_water_change_masks,
+    sar_water_area_metrics,
     sar_water_mask,
     sar_water_threshold_for_mode,
 )
@@ -103,3 +104,62 @@ def test_sar_dynamic_world_overlap_builds_overlap_and_only_layers():
     assert masks["new_water_only_dynamic_world"].expression == (
         "clip(selfMask(and(unmask(dw_new,0),not(unmask(sar_new,0)))),county)"
     )
+
+
+def test_area_metrics_use_one_multiband_reduce_region_call():
+    calls = []
+
+    class AreaImage:
+        def divide(self, value):
+            return self
+
+        def updateMask(self, mask):
+            return self
+
+        def rename(self, name):
+            return self
+
+        def addBands(self, other):
+            return self
+
+        def reduceRegion(self, **kwargs):
+            calls.append(kwargs)
+
+            class Result:
+                def getInfo(self):
+                    return {
+                        "sar_water_before_area_km2": 1,
+                        "sar_water_after_area_km2": 2,
+                        "sar_new_water_area_km2": 1,
+                    }
+
+            return Result()
+
+    class ImageFactory:
+        @staticmethod
+        def pixelArea():
+            return AreaImage()
+
+    class ReducerFactory:
+        @staticmethod
+        def sum():
+            return "sum"
+
+    class FakeEE:
+        Image = ImageFactory
+        Reducer = ReducerFactory
+
+    values = sar_water_area_metrics(
+        FakeEE(),
+        {
+            "sar_water_before": object(),
+            "sar_water_after": object(),
+            "sar_new_water": object(),
+        },
+        "aoi",
+        10,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["bestEffort"] is False
+    assert values["sar_new_water_area_km2"] == 1.0

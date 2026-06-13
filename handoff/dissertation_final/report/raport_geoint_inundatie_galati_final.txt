@@ -1,0 +1,20 @@
+# Raport PDF final indisponibil în repository
+
+[RAPORT PDF GENERAT STRUCTURAL, DAR NEVALIDAT VIZUAL]
+
+Raportul PDF final cu rezultate reale nu este versionat și nu este disponibil în branch-ul auditat.
+
+Generatorul ReportLab este implementat și testat structural. După rularea finală a fluxului Galați în browser, raportul trebuie generat din aplicație și copiat manual în acest director cu numele:
+
+```text
+raport_geoint_inundatie_galati_final.pdf
+```
+
+Pași manuali:
+
+1. pornește aplicația cu `.\scripts\start_app.ps1`;
+2. rulează fluxul Galați cap-coadă;
+3. generează raportul PDF din interfață;
+4. verifică vizual coperta, harta sintetică, graficele și tabelele;
+5. copiază fișierul validat în `handoff/dissertation_final/report/`;
+6. actualizează `TECHNICAL_HANDOFF_FOR_DISSERTATION.md`, `results_summary.json` și `results_summary.csv`.

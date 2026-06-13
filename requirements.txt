@@ -8,3 +8,7 @@ numpy>=1.26
 plotly>=5.22
 python-dotenv>=1.0
 pytest>=8.0
+shapely
+pyproj
+matplotlib
+reportlab

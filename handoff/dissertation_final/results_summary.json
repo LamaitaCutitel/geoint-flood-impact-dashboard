@@ -1,0 +1,381 @@
+{
+    "repository":  "https://github.com/LamaitaCutitel/geoint-flood-impact-dashboard",
+    "branch":  "review/dissertation-ready-local-run",
+    "commit":  "a4e0837c53a2e42641bf08273eaab43e701ad374",
+    "run_date":  "2026-06-13T07:07:20+03:00",
+    "final_run_status":  "validat_tehnic_local",
+    "smoke_test_status":  "separat; vezi LOCAL_RUN_REPORT.md",
+    "county":  "Galati",
+    "event_date":  "2024-09-14",
+    "scenes":  {
+                   "before":  {
+                                  "ee_id":  "COPERNICUS/S1_GRD/S1A_IW_GRDH_1SDV_20240902T042150_20240902T042215_055481_06C4C3_F4DF",
+                                  "display_id":  "S1A_IW_GRDH_1SDV_20240902T042150_20240902T042215_055481_06C4C3_F4DF",
+                                  "acquisition_time":  "2024-09-02T04:21:50+00:00",
+                                  "polarization":  "VH",
+                                  "instrument_mode":  "IW",
+                                  "orbit_pass":  "DESCENDING",
+                                  "relative_orbit":  109,
+                                  "coverage_percent":  95.9
+                              },
+                   "after":  {
+                                 "ee_id":  "COPERNICUS/S1_GRD/S1A_IW_GRDH_1SDV_20240914T042150_20240914T042215_055656_06CBAD_ACFC",
+                                 "display_id":  "S1A_IW_GRDH_1SDV_20240914T042150_20240914T042215_055656_06CBAD_ACFC",
+                                 "acquisition_time":  "2024-09-14T04:21:50+00:00",
+                                 "polarization":  "VH",
+                                 "instrument_mode":  "IW",
+                                 "orbit_pass":  "DESCENDING",
+                                 "relative_orbit":  109,
+                                 "coverage_percent":  95.9
+                             },
+                   "compatibility":  {
+                                         "compatible":  true,
+                                         "requires_confirmation":  false,
+                                         "errors":  [
+
+                                                    ],
+                                         "warnings":  [
+
+                                                      ],
+                                         "confirmed":  true,
+                                         "compatibility":  {
+                                                               "same_polarization":  true,
+                                                               "same_instrument_mode":  true,
+                                                               "same_orbit_pass":  true,
+                                                               "same_relative_orbit":  true,
+                                                               "minimum_coverage_percent":  95.0
+                                                           },
+                                         "overrides":  {
+                                                           "relative_orbit_experimental":  false,
+                                                           "low_coverage":  false
+                                                       }
+                                     },
+                   "overrides":  {
+                                     "relative_orbit_experimental":  false,
+                                     "low_coverage":  false
+                                 }
+               },
+    "area":  {
+                 "type":  "county",
+                 "bbox":  [
+                              27.227562153000065,
+                              45.39131857000007,
+                              28.211359774000073,
+                              46.16309349200003
+                          ],
+                 "area_km2":  4465.5425,
+                 "geometry_hash":  "833995b25aa371ce"
+             },
+    "parameters":  {
+                       "water_threshold":  -18.0,
+                       "smoothing_meters":  0,
+                       "minimum_connected_pixels":  8,
+                       "analysis_scale_meters":  10,
+                       "vectorization_scale_meters":  30,
+                       "minimum_polygon_area_m2":  1000,
+                       "geometry_simplification_tolerance_m":  10,
+                       "threshold_mode":  "echilibrat",
+                       "analysis_mode":  "detaliat",
+                       "buffer_meters":  250
+                   },
+    "sar":  {
+                "status":  {
+                               "raster_available":  true,
+                               "metrics_available":  true,
+                               "vectorization_available":  true,
+                               "osm_impact_available":  true
+                           },
+                "metrics":  {
+                                "sar_water_before_area_km2":  {
+                                                                  "status":  "reușit",
+                                                                  "value":  3256.9394,
+                                                                  "error":  null
+                                                              },
+                                "sar_water_after_area_km2":  {
+                                                                 "status":  "reușit",
+                                                                 "value":  1550.6039,
+                                                                 "error":  null
+                                                             },
+                                "sar_new_water_area_km2":  {
+                                                               "status":  "reușit",
+                                                               "value":  97.6628,
+                                                               "error":  null
+                                                           }
+                            },
+                "vectorization":  {
+                                      "status":  "reușit",
+                                      "error":  null,
+                                      "scale_meters":  30,
+                                      "minimum_polygon_area_m2":  1000,
+                                      "simplification_tolerance_m":  10,
+                                      "best_effort":  true,
+                                      "duration_seconds":  9.719
+                                  },
+                "qa":  {
+                           "status":  "reușit",
+                           "polarization":  "VH",
+                           "balanced_threshold_db":  -18.0,
+                           "final_threshold_db":  -18.0,
+                           "analysis_scale_meters":  10,
+                           "rows":  [
+                                        {
+                                            "threshold_db":  -20.0,
+                                            "status":  "reușit",
+                                            "water_before_km2":  2698.1087,
+                                            "water_after_km2":  867.8247,
+                                            "new_water_km2":  86.0733,
+                                            "duration_seconds":  10.353,
+                                            "error":  null,
+                                            "difference_from_balanced_percent":  -11.87
+                                        },
+                                        {
+                                            "threshold_db":  -19.0,
+                                            "status":  "reușit",
+                                            "water_before_km2":  2985.8949,
+                                            "water_after_km2":  1171.5493,
+                                            "new_water_km2":  88.5366,
+                                            "duration_seconds":  7.533,
+                                            "error":  null,
+                                            "difference_from_balanced_percent":  -9.34
+                                        },
+                                        {
+                                            "threshold_db":  -18.0,
+                                            "status":  "reușit",
+                                            "water_before_km2":  3256.9394,
+                                            "water_after_km2":  1550.6039,
+                                            "new_water_km2":  97.6628,
+                                            "duration_seconds":  0.897,
+                                            "error":  null,
+                                            "difference_from_balanced_percent":  0.0
+                                        },
+                                        {
+                                            "threshold_db":  -17.0,
+                                            "status":  "reușit",
+                                            "water_before_km2":  3508.9827,
+                                            "water_after_km2":  2001.525,
+                                            "new_water_km2":  110.6496,
+                                            "duration_seconds":  19.707,
+                                            "error":  null,
+                                            "difference_from_balanced_percent":  13.3
+                                        },
+                                        {
+                                            "threshold_db":  -16.0,
+                                            "status":  "reușit",
+                                            "water_before_km2":  3735.7868,
+                                            "water_after_km2":  2503.2457,
+                                            "new_water_km2":  118.283,
+                                            "duration_seconds":  7.704,
+                                            "error":  null,
+                                            "difference_from_balanced_percent":  21.11
+                                        }
+                                    ],
+                           "layers":  {
+                                          "qa_persistent_water":  {
+                                                                      "status":  "reușit",
+                                                                      "url":  "https://earthengine.googleapis.com/v1/projects/geoint-dissertation/maps/51d32b576cef9c4c8c6b5bc2491d2d79-255eb6b37a58cc6282c41ed0f9bef3ee/tiles/{z}/{x}/{y}",
+                                                                      "error":  null
+                                                                  },
+                                          "qa_water_loss":  {
+                                                                "status":  "reușit",
+                                                                "url":  "https://earthengine.googleapis.com/v1/projects/geoint-dissertation/maps/326aa418ba3fb68eb545e829e50b17f9-abf4b7cb770aaae9c7de379d2f0e144b/tiles/{z}/{x}/{y}",
+                                                                "error":  null
+                                                            },
+                                          "qa_delta_backscatter":  {
+                                                                       "status":  "reușit",
+                                                                       "url":  "https://earthengine.googleapis.com/v1/projects/geoint-dissertation/maps/532f859255a113db1c92a6c991dda6d3-a9d5278de7d66eb4f80c85e0d225aaf6/tiles/{z}/{x}/{y}",
+                                                                       "error":  null
+                                                                   }
+                                      },
+                           "manual_checklist":  [
+                                                    "luciu de apă existent",
+                                                    "umbre radar",
+                                                    "teren urban",
+                                                    "vegetație inundată",
+                                                    "artefacte la marginea scenei"
+                                                ]
+                       }
+            },
+    "dynamic_world":  {
+                          "status":  "reușit",
+                          "metrics":  {
+                                          "dynamic_world_new_water_area_km2":  18.6308,
+                                          "sar_dynamic_world_new_water_overlap_area_km2":  1.1445,
+                                          "new_water_only_sar_area_km2":  96.5184,
+                                          "new_water_only_dynamic_world_area_km2":  17.4863
+                                      },
+                          "dates":  {
+                                        "before":  "2024-08-18 - 2024-09-18",
+                                        "after":  "2024-08-30 - 2024-09-30"
+                                    }
+                      },
+    "osm":  {
+                "status":  "osm_complet",
+                "metrics":  {
+                                "buildings_direct":  283,
+                                "buildings_buffer":  7075,
+                                "buildings_area_m2":  4092840.8000000343,
+                                "buildings_overlap_m2":  83491.39999999995,
+                                "buildings_complete":  48,
+                                "buildings_partial":  235,
+                                "roads_direct_km":  58.01700000000015,
+                                "roads_buffer_km":  1612.4289999999999,
+                                "railways_direct_km":  25.63800000000001,
+                                "railways_buffer_km":  620.6459999999987,
+                                "bridges_direct":  0,
+                                "bridges_buffer":  0,
+                                "critical_direct":  57,
+                                "critical_buffer":  300,
+                                "road_classes":  {
+                                                     "primary":  {
+                                                                     "direct_km":  5.968,
+                                                                     "buffer_km":  107.824
+                                                                 },
+                                                     "secondary":  {
+                                                                       "direct_km":  8.391,
+                                                                       "buffer_km":  216.639
+                                                                   },
+                                                     "tertiary":  {
+                                                                      "direct_km":  2.678,
+                                                                      "buffer_km":  86.416
+                                                                  },
+                                                     "residential":  {
+                                                                         "direct_km":  18.63,
+                                                                         "buffer_km":  688.092
+                                                                     },
+                                                     "trunk":  {
+                                                                   "direct_km":  2.077,
+                                                                   "buffer_km":  39.935
+                                                               },
+                                                     "service":  {
+                                                                     "direct_km":  15.267,
+                                                                     "buffer_km":  336.036
+                                                                 },
+                                                     "unclassified":  {
+                                                                          "direct_km":  4.71,
+                                                                          "buffer_km":  134.332
+                                                                      },
+                                                     "secondary_link":  {
+                                                                            "direct_km":  0.121,
+                                                                            "buffer_km":  0.24
+                                                                        },
+                                                     "tertiary_link":  {
+                                                                           "direct_km":  0.036,
+                                                                           "buffer_km":  0.712
+                                                                       },
+                                                     "primary_link":  {
+                                                                          "direct_km":  0.102,
+                                                                          "buffer_km":  1.185
+                                                                      },
+                                                     "trunk_link":  {
+                                                                        "direct_km":  0.037,
+                                                                        "buffer_km":  1.018
+                                                                    }
+                                                 },
+                                "status_counts":  {
+                                                      "Intersectat direct":  1777,
+                                                      "În buffer de avertizare":  14146,
+                                                      "Referință":  6106,
+                                                      "Neexpus":  11449
+                                                  }
+                            },
+                "sources":  {
+                                "buildings":  {
+                                                  "ok":  true,
+                                                  "count":  20429,
+                                                  "source":  "cache",
+                                                  "cache_date":  "2026-06-12T09:01:49.168312+00:00",
+                                                  "completeness":  "complet",
+                                                  "warnings":  [
+
+                                                               ],
+                                                  "tile_count":  1,
+                                                  "duplicate_count":  5,
+                                                  "relation_count":  22,
+                                                  "errors":  [
+
+                                                             ]
+                                              },
+                                "roads":  {
+                                              "ok":  true,
+                                              "count":  13821,
+                                              "source":  "cache",
+                                              "cache_date":  "2026-06-12T09:02:05.082307+00:00",
+                                              "completeness":  "complet",
+                                              "warnings":  [
+
+                                                           ],
+                                              "tile_count":  1,
+                                              "duplicate_count":  0,
+                                              "relation_count":  0,
+                                              "errors":  [
+
+                                                         ]
+                                          },
+                                "railways":  {
+                                                 "ok":  true,
+                                                 "count":  1472,
+                                                 "source":  "cache",
+                                                 "cache_date":  "2026-06-12T09:02:09.782872+00:00",
+                                                 "completeness":  "complet",
+                                                 "warnings":  [
+
+                                                              ],
+                                                 "tile_count":  1,
+                                                 "duplicate_count":  0,
+                                                 "relation_count":  0,
+                                                 "errors":  [
+
+                                                            ]
+                                             },
+                                "bridges":  {
+                                                "ok":  true,
+                                                "count":  0,
+                                                "source":  "cache",
+                                                "cache_date":  "2026-06-12T09:03:45.725479+00:00",
+                                                "completeness":  "complet",
+                                                "warnings":  [
+
+                                                             ],
+                                                "tile_count":  1,
+                                                "duplicate_count":  0,
+                                                "relation_count":  0,
+                                                "errors":  [
+
+                                                           ]
+                                            },
+                                "critical":  {
+                                                 "ok":  true,
+                                                 "count":  1110,
+                                                 "source":  "cache",
+                                                 "cache_date":  "2026-06-12T09:03:51.512109+00:00",
+                                                 "completeness":  "complet",
+                                                 "warnings":  [
+
+                                                              ],
+                                                 "tile_count":  1,
+                                                 "duplicate_count":  5114,
+                                                 "relation_count":  9,
+                                                 "errors":  [
+
+                                                            ]
+                                             }
+                            }
+            },
+    "timings_seconds":  {
+                            "SAR":  12.825,
+                            "vectorizare":  9.719,
+                            "Dynamic World":  13.568,
+                            "cache OSM":  6.925,
+                            "impact OSM":  643.065,
+                            "QA SAR":  50.938
+                        },
+    "errors":  [
+
+               ],
+    "pdf_path":  "C:\\Users\\octav\\Desktop\\geoint-flood-impact-dashboard\\data\\output\\reports\\raport_geoint_inundatie_galati_2024-09-14.pdf",
+    "limitations":  [
+                        "Rezultatele reprezintă produse GEOINT preliminare de suport decizional.",
+                        "Intersecțiile OSM indică elemente potențial expuse, nu pagube confirmate.",
+                        "Diferențele observate Dynamic World necesită interpretare și verificare în teren."
+                    ]
+}

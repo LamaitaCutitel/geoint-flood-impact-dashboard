@@ -40,6 +40,10 @@ def configure_page(st) -> None:
         initial_sidebar_state="expanded",
     )
     st.title("Dashboard GEOINT pentru analiza preliminara a inundatiilor")
+    st.warning(
+        "Mod exploratoriu / experimental. Pentru fluxul metodologic al disertatiei "
+        "ruleaza impact_tool.py."
+    )
     st.caption(
         "Analiza Sentinel-1 SAR, procesare cloud in Google Earth Engine si evaluarea "
         "tipurilor de teren intersectate."

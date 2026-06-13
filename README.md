@@ -13,6 +13,17 @@ tipuri de teren intersectate de extinderea detectata. Rezultatul este un produs
 GEOINT preliminar de suport decizional, potrivit pentru demonstratii academice si
 analize rapide.
 
+## Aplicatia principala pentru disertatie
+
+Entrypoint-ul recomandat pentru evaluare este `impact_tool.py`. Acesta foloseste
+scene Sentinel-1 individuale selectate explicit pentru BEFORE si AFTER. Extinderea
+preliminara este calculata ca apa observata AFTER minus apa observata BEFORE,
+dupa filtrare si decupare la geometria exacta a judetului sau AOI-ului.
+
+`app.py` ramane disponibil numai ca dashboard exploratoriu/experimental. Modurile
+sale bazate pe compozite mediane nu reprezinta metodologia principala a
+disertatiei.
+
 ## Arhitectura
 
 - Streamlit ruleaza local interfata, parametrii, harta si rapoartele mici.
@@ -47,9 +58,10 @@ analize rapide.
 - AOI-ul analizei foloseste geometria reala a judetului, iar bounding box-ul este folosit doar pentru zoom.
 - Parametri Sentinel-1: polarizare, orbit pass, smoothing, prag SAR change,
   prag separat pentru detectia SAR water si pixeli conectati.
-- Analiza finala foloseste strategia SAR hibrida recomandata: BEFORE ca
-  compozit median din scene compatibile si AFTER ca scena individuala selectata
-  manual. AFTER poate fi testat si ca median scurt sau minimum SAR exploratoriu.
+- Tool-ul principal foloseste o pereche stricta de scene individuale BEFORE/AFTER,
+  confirmata de utilizator inaintea analizei.
+- Dashboard-ul experimental poate testa separat compozite mediane sau minimum SAR;
+  aceste optiuni nu sunt metodologia principala a disertatiei.
 - Sentinel-2 RGB si indici NDWI, MNDWI, NDVI, NDMI pentru before/after si diferente.
 - Dynamic World before/after, diferente observate intre compozitele analizate si terenuri intersectate.
 - Dynamic World AFTER poate folosi implicit fereastra apropiata de scena SAR
@@ -109,13 +121,19 @@ Editati `.env` si setati `GEE_PROJECT_ID`.
 
 ```powershell
 python -m src.gee.gee_auth
-streamlit run app.py
+python -m streamlit run impact_tool.py
 ```
 
 Autentificarea Earth Engine se face o singura data pe fiecare PC sau VM.
 Interfata se incarca si fara autentificare GEE, permitand explorarea hartii
 administrative si a parametrilor. Analiza SAR este declansata doar dupa butonul
-`Ruleaza analiza SAR`.
+`Ruleaza analiza impactului`.
+
+Pentru dashboard-ul exploratoriu vechi se poate rula separat:
+
+```powershell
+python -m streamlit run app.py --server.port 8502
+```
 
 ## Harta Unica Si Layere
 
