@@ -1,0 +1,9 @@
+[CAPTURĂ NEREALIZATĂ AUTOMAT]
+
+Motiv: parametrii finali trebuie aleși și validați vizual după selectarea perechii de scene.
+
+Pași manuali:
+1. confirmă perechea BEFORE/AFTER;
+2. extinde secțiunea parametrilor SAR avansați;
+3. păstrează vizibile pragul SAR, smoothing-ul, minimum connected pixels și bufferul;
+4. salvează captura `05_parametri_sar.png`.
