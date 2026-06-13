@@ -12,6 +12,7 @@ from src.impact_tool.models import (
     WIZARD_STEPS,
 )
 from src.impact_tool.workflow import workflow_steps
+from src.impact_tool.ui.results import _osm_source_label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -79,6 +80,20 @@ def test_shell_contains_required_controls():
     assert "Generează și descarcă raportul PDF" in source
     assert "disabled=not state.can_run_analysis" in source
     assert "disabled=not state.can_download_report" in source
+
+
+def test_legacy_dashboard_is_visibly_experimental():
+    source = (PROJECT_ROOT / "src/app/layout.py").read_text(encoding="utf-8")
+
+    assert "Mod exploratoriu / experimental" in source
+
+
+def test_osm_source_label_distinguishes_cache_from_live_download():
+    assert _osm_source_label({"roads": {"ok": True, "source": "cache"}}) == "cache local"
+    assert (
+        _osm_source_label({"roads": {"ok": True, "source": "Overpass API"}})
+        == "descarcare live Overpass API"
+    )
 
 
 def test_new_tool_excludes_disallowed_products_and_technical_layers():

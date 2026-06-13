@@ -124,6 +124,7 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
     if not state.osm_status:
         st.caption("Datele OSM sunt încărcate automat în timpul analizei.")
         return
+    st.info(f"Sursa OSM: {_osm_source_label(state.osm_status)}")
     state.presentation_mode = st.toggle(
         "Mod prezentare",
         value=state.presentation_mode,
@@ -171,6 +172,21 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
             "Impactul geometric necesită geometria vectorială a apei noi SAR; "
             "datele OSM brute rămân disponibile."
         )
+
+
+def _osm_source_label(statuses: dict[str, dict[str, Any]]) -> str:
+    sources = {
+        str(status.get("source", "")).strip().lower()
+        for status in statuses.values()
+        if status.get("ok")
+    }
+    if not sources:
+        return "indisponibila"
+    if sources <= {"cache"}:
+        return "cache local"
+    if any("overpass" in source for source in sources):
+        return "descarcare live Overpass API"
+    return ", ".join(sorted(sources))
 
 
 def _render_priority_table(st: Any, state: ImpactToolState, impact: dict[str, Any]) -> None:

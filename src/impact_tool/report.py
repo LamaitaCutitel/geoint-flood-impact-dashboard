@@ -5,6 +5,8 @@ import hashlib
 from io import BytesIO
 import json
 import math
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import matplotlib
@@ -37,6 +39,7 @@ from src.impact_tool.models import ImpactToolState
 
 
 REPORT_VERSION = "4.1"
+DEFAULT_REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "output" / "reports"
 MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
@@ -63,6 +66,18 @@ def generate_cached_report(
     pdf = generate_report_pdf(state)
     cache.set("reports", key, base64.b64encode(pdf).decode("ascii"))
     return pdf, False
+
+
+def save_report_pdf(
+    state: ImpactToolState,
+    pdf: bytes,
+    output_dir: Path | str | None = None,
+) -> Path:
+    destination = Path(output_dir) if output_dir else DEFAULT_REPORTS_DIR
+    destination.mkdir(parents=True, exist_ok=True)
+    report_path = destination / report_filename(state)
+    report_path.write_bytes(pdf)
+    return report_path
 
 
 def _report_cache_key(cache: PersistentCache, state: ImpactToolState) -> str:
@@ -245,6 +260,7 @@ def _summary_table(state: ImpactToolState) -> Table:
             ["Județ", state.county_name],
             ["Arie activă", f"{state.active_area_km2:.2f} km²"],
             ["Buffer", f"{state.buffer_meters} m"],
+            ["Generat la", datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")],
             ["Metodă principală", "Apă nouă evidențiată prin SAR"],
         ],
         colWidths=[5 * cm, 9 * cm],
@@ -260,10 +276,10 @@ def _scene_table(state: ImpactToolState) -> Table:
         rows.append(
             [
                 role,
-                str(scene.get("acquisition_time", "indisponibil"))[:19],
-                scene.get("polarization", "indisponibil"),
-                scene.get("orbit_pass", "indisponibil"),
-                scene.get("relative_orbit", "indisponibil"),
+                str(scene.get("acquisition_time", "[NECALCULAT]"))[:19],
+                scene.get("polarization", "[NECALCULAT]"),
+                scene.get("orbit_pass", "[NECALCULAT]"),
+                scene.get("relative_orbit", "[NECALCULAT]"),
             ]
         )
     table = Table(rows, repeatRows=1)

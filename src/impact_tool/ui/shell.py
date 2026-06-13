@@ -22,7 +22,11 @@ from src.impact_tool.dynamic_world import dynamic_world_layer_definitions
 from src.impact_tool.map.builder import build_shell_map
 from src.impact_tool.models import APP_SUBTITLE, APP_TITLE, LAYER_GROUPS
 from src.impact_tool.osm_impact import visible_impact_layers
-from src.impact_tool.report import generate_cached_report, report_filename
+from src.impact_tool.report import (
+    generate_cached_report,
+    report_filename,
+    save_report_pdf,
+)
 from src.impact_tool.sar import sar_layer_definitions
 from src.impact_tool.state import initialize_state, record_timing, set_aoi
 from src.impact_tool.ui.results import render_result_tabs
@@ -127,12 +131,14 @@ def render_app(st_module: Any | None = None) -> None:
             state.report_bytes, from_cache = generate_cached_report(state)
             record_timing(state, "PDF", perf_counter() - report_started)
             state.report_filename = report_filename(state)
+            saved_path = save_report_pdf(state, state.report_bytes)
             state.report_requested = False
             state.cache_events.append(
                 "Raport PDF încărcat din cache."
                 if from_cache
                 else "Raport PDF generat și salvat în cache."
             )
+            state.cache_events.append(f"Raport PDF salvat local: {saved_path}")
         st.rerun()
 
     if state.analysis_results.get("osm_raw") and not state.analysis_results.get("osm_impact"):

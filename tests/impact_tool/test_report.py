@@ -11,6 +11,7 @@ from src.impact_tool.report import (
     generate_cached_report,
     generate_report_pdf,
     report_filename,
+    save_report_pdf,
     _metric_label,
     _osm_dynamic_world_summary,
     _report_cache_key,
@@ -225,6 +226,14 @@ def test_report_filename_prefers_event_date() -> None:
     state = _state()
     state.event_date = "2024-09-20"
     assert report_filename(state).endswith("_2024-09-20.pdf")
+
+
+def test_report_is_saved_to_requested_output_directory(tmp_path) -> None:
+    state = _state()
+    report_path = save_report_pdf(state, b"%PDF-test", tmp_path)
+
+    assert report_path == tmp_path / report_filename(state)
+    assert report_path.read_bytes() == b"%PDF-test"
 
 
 def test_pdf_rapid_detailed_and_missing_data() -> None:
