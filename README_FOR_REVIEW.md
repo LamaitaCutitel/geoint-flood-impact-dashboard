@@ -10,6 +10,16 @@ Rezultatele folosesc formularile prudente `apa observata automat prin SAR`,
 `extindere preliminara` si `diferente observate Dynamic World`. Aplicatia nu
 confirma o inundatie in teren.
 
+## Arhitectura si directoare
+
+- `impact_tool.py` este entrypoint-ul principal.
+- `src/impact_tool/` contine starea, workflow-ul, UI-ul, harta, SAR, Dynamic
+  World, OSM si raportul PDF.
+- `src/gee/` contine integrarea Google Earth Engine.
+- `data/boundaries/` contine limita administrativa locala necesara pornirii.
+- `cache/` si `data/output/` sunt generate local si nu sunt versionate.
+- `tests/` contine suita pytest.
+
 ## Pornire rapida pe Windows
 
 Cerinta recomandata: Python 3.12, Git si un cont Google Earth Engine autorizat.
@@ -19,7 +29,7 @@ git clone <URL_REPOSITORY>
 cd geoint-flood-impact-dashboard
 git switch review/dissertation-ready-local-run
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\start_app.ps1
+.\scripts\start_app.ps1
 ```
 
 Scriptul creeaza `.venv` cu Python 3.12 daca nu exista, instaleaza dependentele,
@@ -53,7 +63,7 @@ Pregatirea cache-ului OSM:
 ## Verificare automata
 
 ```powershell
-.\test_local_run.ps1
+.\scripts\test_local_run.ps1
 ```
 
 Raportul este actualizat in `LOCAL_RUN_REPORT.md`.
@@ -61,11 +71,23 @@ Raportul este actualizat in `LOCAL_RUN_REPORT.md`.
 ## Export curat
 
 ```powershell
-.\export_for_review.ps1
+.\scripts\export_for_review.ps1
 ```
 
 Cache-ul OSM este exclus implicit. Pentru un pachet offline mai mare:
 
 ```powershell
-.\export_for_review.ps1 -IncludeOsmCache
+.\scripts\export_for_review.ps1 -IncludeOsmCache
 ```
+
+Arhiva standard este `export_review/Disertatie_GEOINT_App_Review.zip`.
+
+## Stare si limitari cunoscute
+
+Functiile finalizate sunt inventariate in `TECHNICAL_STATUS.md`. Verificarile
+locale sunt in `LOCAL_RUN_REPORT.md`, iar predarea completa in
+`OVERNIGHT_HANDOFF.md`.
+
+Analiza completa necesita autentificare GEE si acces la internet. Overpass poate
+avea timeout cand cache-ul local lipseste. Capturile si continutul PDF cu date
+reale trebuie verificate manual in browser.

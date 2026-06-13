@@ -4,14 +4,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+$projectDirectory = Split-Path $PSScriptRoot -Parent
+Set-Location $projectDirectory
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$packageName = "geoint-flood-impact-dashboard-review-$timestamp"
-$stagingRoot = Join-Path $OutputDirectory $packageName
+$packageName = "Disertatie_GEOINT_App_Review"
+$stagingRoot = Join-Path $OutputDirectory "$packageName-staging-$timestamp"
 $zipPath = Join-Path $OutputDirectory "$packageName.zip"
 New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
-$projectRoot = (Resolve-Path $PSScriptRoot).Path.TrimEnd("\")
+$projectRoot = (Resolve-Path $projectDirectory).Path.TrimEnd("\")
 
 function Get-ReviewRelativePath {
     param(
@@ -65,7 +66,7 @@ $manifestRows = Get-ChildItem $stagingRoot -File -Recurse | ForEach-Object {
 @("path`tbytes`tsha256") + $manifestRows |
     Set-Content -Path (Join-Path $stagingRoot "EXPORT_MANIFEST.tsv") -Encoding UTF8
 
-Compress-Archive -Path "$stagingRoot\*" -DestinationPath $zipPath -CompressionLevel Optimal
+Compress-Archive -Path "$stagingRoot\*" -DestinationPath $zipPath -CompressionLevel Optimal -Force
 
 $maxPartBytes = 500MB
 $zip = Get-Item $zipPath

@@ -23,5 +23,5 @@ aplicatiei si evita afisarea terminalului, a caii `.env` sau a credentialelor.
 - `06-osm-impact.png`
 - `07-pdf-report.png`
 
-Salveaza capturile in `docs/screenshots/`. Nu include token-uri, chei sau date
-personale in imagini.
+Salveaza capturile in `docs/screenshots/dissertation/`. Nu include token-uri,
+chei sau date personale in imagini.

@@ -4,9 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+$projectRoot = Split-Path $PSScriptRoot -Parent
+Set-Location $projectRoot
 $started = Get-Date
-$logDirectory = Join-Path $PSScriptRoot ".codex-sprint-logs"
+$logDirectory = Join-Path $projectRoot ".codex-sprint-logs"
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 
 $venvPath = if (Test-Path ".venv312\Scripts\python.exe") {
@@ -16,7 +17,7 @@ $venvPath = if (Test-Path ".venv312\Scripts\python.exe") {
 }
 $python = Join-Path $venvPath "Scripts\python.exe"
 if (-not (Test-Path $python)) {
-    throw "Mediul Python lipseste. Ruleaza mai intai .\start_app.ps1."
+    throw "Mediul Python lipseste. Ruleaza mai intai .\scripts\start_app.ps1."
 }
 
 $checks = [System.Collections.Generic.List[string]]::new()
@@ -57,7 +58,7 @@ $job = Start-Job -ScriptBlock {
         --server.headless true `
         --server.address 127.0.0.1 `
         --server.port $ServerPort 2>&1
-} -ArgumentList $python, $PSScriptRoot, $Port
+} -ArgumentList $python, $projectRoot, $Port
 
 try {
     $healthy = $false

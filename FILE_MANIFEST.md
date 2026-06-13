@@ -17,9 +17,9 @@
 
 ## Scripturi
 
-- `start_app.ps1` - instalare si pornire locala.
-- `test_local_run.ps1` - teste, cache OSM si health check Streamlit.
-- `export_for_review.ps1` - arhiva curata si manifest SHA-256.
+- `scripts/start_app.ps1` - instalare si pornire locala.
+- `scripts/test_local_run.ps1` - teste, cache OSM si health check Streamlit.
+- `scripts/export_for_review.ps1` - arhiva curata si manifest SHA-256.
 - `scripts/prepare_galati_cache.py` - validarea/pregatirea cache-ului OSM Galati.
 
 ## Documentatie

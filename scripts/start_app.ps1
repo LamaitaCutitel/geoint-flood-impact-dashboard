@@ -4,7 +4,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+$projectRoot = Split-Path $PSScriptRoot -Parent
+Set-Location $projectRoot
+
+if (-not (Test-Path ".env")) {
+    Write-Warning ".env lipseste. Copiaza .env.example si seteaza GEE_PROJECT_ID local."
+}
 
 $venvPath = if (Test-Path ".venv312\Scripts\python.exe") {
     ".venv312"
@@ -19,6 +24,7 @@ if (-not (Test-Path "$venvPath\Scripts\python.exe")) {
 }
 
 $python = Join-Path $venvPath "Scripts\python.exe"
+. (Join-Path $venvPath "Scripts\Activate.ps1")
 & $python -c "import sys; assert sys.version_info[:2] == (3, 12), 'Este necesar Python 3.12'; print(sys.version)"
 if ($LASTEXITCODE -ne 0) { throw "Versiunea Python nu este compatibila." }
 
