@@ -1,0 +1,10 @@
+[CAPTURĂ NEREALIZATĂ AUTOMAT]
+
+Motiv: comparatorul vertical trebuie activat manual în browser după selectarea scenelor.
+
+Pași manuali:
+1. selectează scenele BEFORE și AFTER;
+2. apasă `Compară imaginile`;
+3. poziționează separatorul vertical aproximativ central;
+4. verifică etichetele BEFORE și AFTER;
+5. salvează captura `04_slider_before_after.png`.
