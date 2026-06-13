@@ -1,0 +1,140 @@
+{
+  "repository": "LamaitaCutitel/geoint-flood-impact-dashboard",
+  "branch": "review/dissertation-ready-local-run",
+  "commit_audited_application": "abe48fb2102ad90c2577f1b33e40d78ddd61ef2f",
+  "run_datetime": "2026-06-13 05:00:16 +03:00",
+  "application_name": "Aplicație GEOINT pentru evaluarea preliminară a impactului inundațiilor",
+  "area": {
+    "county": "Galati",
+    "aoi_used": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "area_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "bbox": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+  },
+  "sentinel1": {
+    "before": {
+      "scene_id": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "acquisition_date": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "acquisition_time": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "polarization": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "orbit_pass": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "relative_orbit": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "coverage_percent": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "product_type": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+    },
+    "after": {
+      "scene_id": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "acquisition_date": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "acquisition_time": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "polarization": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "orbit_pass": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "relative_orbit": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "coverage_percent": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+      "product_type": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+    },
+    "compatibility": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "warnings": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+  },
+  "sar_parameters": {
+    "water_threshold_db": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "smoothing_meters": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "minimum_connected_pixels": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "scale_meters": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "osm_buffer_meters": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+  },
+  "sar_results": {
+    "water_before_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "water_after_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "new_water_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "sar_duration_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "vectorization_duration_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+  },
+  "dynamic_world_results": {
+    "before_date": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "after_date": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "before_product_type": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "after_product_type": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "before_coverage_percent": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "after_coverage_percent": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "new_water_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "sar_overlap_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "sar_only_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "dynamic_world_only_km2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "class_changes": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]"
+  },
+  "osm_results": {
+    "buildings_direct": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "buildings_buffer": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "reference_buildings_displayed": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "buildings_total_area_m2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "buildings_water_overlap_m2": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "buildings_fully_intersected": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "buildings_partially_intersected": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "roads_direct_km": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "roads_buffer_km": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "railways_direct_km": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "railways_buffer_km": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "bridges_direct": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "bridges_buffer": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "critical_direct": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "critical_buffer": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "source": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "cache_date": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "validated_cache_categories": [
+      "buildings",
+      "roads",
+      "railways",
+      "bridges",
+      "critical",
+      "critical_rapid"
+    ]
+  },
+  "timings": {
+    "initialization_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "scene_search_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "thumbnails_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "sar_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "vectorization_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "dynamic_world_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "osm_cache_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "osm_impact_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "map_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "pdf_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "analysis_total_seconds": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "automated_local_validation_total_seconds": 35.66
+  },
+  "report_pdf": {
+    "filename": "[DE COMPLETAT DUPĂ RULAREA FINALĂ]",
+    "local_directory": "data/output/reports/",
+    "visual_validation": "[NEVALIDAT TEHNIC]",
+    "repository_copy": "[NEVALIDAT TEHNIC]"
+  },
+  "limitations": [
+    "Rezultatele SAR depind de geometria achiziției și de rugozitatea suprafeței.",
+    "Rezultatul SAR este sensibil la pragul selectat.",
+    "Dynamic World este o clasificare automată și poate avea decalaje temporale.",
+    "Completitudinea datelor OSM poate varia.",
+    "Expunerea geometrică nu reprezintă automat pagubă reală.",
+    "Rezultatele necesită verificare în teren."
+  ],
+  "validated_features": [
+    "entrypoint impact_tool.py",
+    "importuri Python",
+    "fișiere obligatorii",
+    "cache OSM Galați",
+    "suita pytest completă",
+    "Streamlit health check",
+    "configurație locală GEE detectată",
+    "export curat fără secrete",
+    "workflow GitHub Actions Impact tool CI"
+  ],
+  "unvalidated_features": [
+    "flux GEE complet cap-coadă în browser",
+    "scenele Sentinel-1 finale",
+    "valorile reale SAR",
+    "valorile reale Dynamic World",
+    "valorile reale OSM",
+    "PDF final validat vizual",
+    "capturi finale pentru disertație",
+    "comparația cu observații din teren"
+  ]
+}
