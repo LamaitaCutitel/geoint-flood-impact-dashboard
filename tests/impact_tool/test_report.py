@@ -18,6 +18,7 @@ from src.impact_tool.report import (
     _real_scale_bar,
     _osm_status_table,
     _synthetic_map,
+    validate_report_pdf,
 )
 
 
@@ -50,6 +51,11 @@ def test_pdf_is_generated_with_partial_results() -> None:
     pdf = generate_report_pdf(_state())
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 20_000
+    validation = validate_report_pdf(pdf)
+    assert validation["status"] == "disponibil"
+    assert validation["page_count"] > 0
+    assert validation["mandatory_note_present"]
+    assert validation["tables_and_charts_present"]
 
 
 def test_pdf_supports_aoi_and_buffer_extremes() -> None:
@@ -234,6 +240,17 @@ def test_report_is_saved_to_requested_output_directory(tmp_path) -> None:
 
     assert report_path == tmp_path / report_filename(state)
     assert report_path.read_bytes() == b"%PDF-test"
+
+
+def test_saved_pdf_validation_checks_file_existence(tmp_path) -> None:
+    pdf = generate_report_pdf(_state())
+    report_path = save_report_pdf(_state(), pdf, tmp_path)
+
+    validation = validate_report_pdf(pdf, report_path)
+
+    assert validation["exists"]
+    assert validation["size_bytes"] == len(pdf)
+    assert validation["error"] is None
 
 
 def test_pdf_rapid_detailed_and_missing_data() -> None:

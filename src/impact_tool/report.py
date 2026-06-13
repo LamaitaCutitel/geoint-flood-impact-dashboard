@@ -5,6 +5,7 @@ import hashlib
 from io import BytesIO
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ MANDATORY_NOTE = (
     "Rezultatele reprezintă produse GEOINT preliminare de suport decizional "
     "și nu constituie confirmare oficială din teren."
 )
+MANDATORY_NOTE_MARKER = "GEOINT_PRELIMINARY_NOT_OFFICIAL"
+STRUCTURE_MARKER = "GEOINT_TABLES_AND_CHARTS"
 
 
 def report_filename(state: ImpactToolState) -> str:
@@ -98,6 +101,8 @@ def _report_cache_key(cache: PersistentCache, state: ImpactToolState) -> str:
         "osm_dynamic_world": state.analysis_results.get("osm_dynamic_world", {}),
         "timings": state.timings,
         "analysis_mode": state.analysis_mode,
+        "scene_pair_validation": state.scene_pair_validation,
+        "sar_threshold_mode": state.sar_threshold_mode,
         "report_version": REPORT_VERSION,
     }
     payload_hash = hashlib.sha256(
@@ -118,6 +123,8 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
         topMargin=1.4 * cm,
         bottomMargin=1.4 * cm,
         title="Raport GEOINT privind impactul unei inundații",
+        subject=MANDATORY_NOTE_MARKER,
+        keywords=STRUCTURE_MARKER,
         pageCompression=0,
     )
     styles = getSampleStyleSheet()
@@ -166,6 +173,14 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
     )
     _section(story, styles, "6. Rezultatele SAR", "")
     story.append(_metrics_table((state.analysis_results.get("sar") or {}).get("metrics", {})))
+    _section(
+        story,
+        styles,
+        "6.1 Justificarea pragului SAR",
+        "Analiza de sensibilitate este un instrument QA separat și nu schimbă "
+        "metodologia principală BEFORE / AFTER.",
+    )
+    story.append(_sar_qa_table(state))
     _section(story, styles, "7. Dynamic World", _dynamic_world_summary(state))
     _section(
         story,
@@ -228,6 +243,34 @@ def generate_report_pdf(state: ImpactToolState) -> bytes:
     return output.getvalue()
 
 
+def validate_report_pdf(
+    pdf: bytes,
+    path: Path | str | None = None,
+) -> dict[str, Any]:
+    report_path = Path(path) if path else None
+    page_count = len(re.findall(rb"/Type\s*/Page(?!s)\b", pdf))
+    note_present = MANDATORY_NOTE_MARKER.encode("ascii") in pdf
+    structure_present = STRUCTURE_MARKER.encode("ascii") in pdf
+    valid = (
+        pdf.startswith(b"%PDF")
+        and b"%%EOF" in pdf[-1024:]
+        and page_count > 0
+        and note_present
+        and structure_present
+        and (report_path is None or report_path.is_file())
+    )
+    return {
+        "status": "disponibil" if valid else "eroare",
+        "path": str(report_path) if report_path else None,
+        "exists": report_path.is_file() if report_path else True,
+        "size_bytes": len(pdf),
+        "page_count": page_count,
+        "mandatory_note_present": note_present,
+        "tables_and_charts_present": structure_present,
+        "error": None if valid else "Validarea structurală PDF a eșuat.",
+    }
+
+
 def _configure_fonts(styles: Any) -> None:
     if "ImpactSans" not in pdfmetrics.getRegisteredFontNames():
         font_root = matplotlib.get_data_path() + "/fonts/ttf/"
@@ -282,6 +325,23 @@ def _scene_table(state: ImpactToolState) -> Table:
                 scene.get("relative_orbit", "[NECALCULAT]"),
             ]
         )
+    compatibility = state.scene_pair_validation.get("compatibility", {})
+    overrides = state.scene_pair_validation.get("overrides", {})
+    rows.append(
+        [
+            "COMPATIBILITATE",
+            "orbită relativă identică"
+            if compatibility.get("same_relative_orbit")
+            else "orbită relativă diferită",
+            "override experimental"
+            if overrides.get("relative_orbit_experimental")
+            else "fără override",
+            "acoperire acceptată"
+            if overrides.get("low_coverage")
+            else "prag final standard",
+            state.sar_threshold_mode,
+        ]
+    )
     table = Table(rows, repeatRows=1)
     table.setStyle(_table_style())
     return table
@@ -312,6 +372,47 @@ def _parameters_table(state: ImpactToolState) -> Table:
     return table
 
 
+def _sar_qa_table(state: ImpactToolState) -> Table:
+    qa = state.analysis_results.get("sar_qa") or {}
+    rows = [[
+        "Prag dB",
+        "Apă BEFORE km²",
+        "Apă AFTER km²",
+        "Apă nouă km²",
+        "Diferență vs echilibrat",
+        "Status",
+    ]]
+    for item in qa.get("rows", []):
+        rows.append(
+            [
+                item.get("threshold_db"),
+                _format_value(item.get("water_before_km2")),
+                _format_value(item.get("water_after_km2")),
+                _format_value(item.get("new_water_km2")),
+                (
+                    f"{item['difference_from_balanced_percent']:.2f}%"
+                    if item.get("difference_from_balanced_percent") is not None
+                    else "[NECALCULAT]"
+                ),
+                item.get("status", "[NECALCULAT]"),
+            ]
+        )
+    if len(rows) == 1:
+        rows.append(
+            [
+                "[NEVALIDAT TEHNIC]",
+                "-",
+                "-",
+                "-",
+                "-",
+                "QA nerulat",
+            ]
+        )
+    table = Table(rows, repeatRows=1)
+    table.setStyle(_table_style())
+    return table
+
+
 METRIC_LABELS = {
     "sar_water_before_area_km2": "Suprafață apă BEFORE (km²)",
     "sar_water_after_area_km2": "Suprafață apă AFTER (km²)",
@@ -338,6 +439,10 @@ def _metric_label(key: str) -> str:
 
 
 def _format_value(value: Any) -> str:
+    if isinstance(value, dict) and {"status", "value", "error"} <= set(value):
+        if value.get("status") == "reușit":
+            return _format_value(value.get("value"))
+        return f"[NECALCULAT] {value.get('error') or value.get('status')}"
     if isinstance(value, dict):
         return "; ".join(
             f"{_metric_label(str(key))}: {_format_value(item)}"
@@ -359,7 +464,14 @@ def _dynamic_metric_value(result: dict[str, Any], key: str) -> float:
 
 
 def _osm_status_table(state: ImpactToolState) -> Table:
-    rows = [["Categorie OSM", "Obiecte", "Sursă", "Data cache", "Completitudine"]]
+    rows = [[
+        "Categorie OSM",
+        "Obiecte",
+        "Sursă",
+        "Data cache",
+        "Completitudine",
+        "Durată",
+    ]]
     for category, status in state.osm_status.items():
         rows.append(
             [
@@ -368,10 +480,22 @@ def _osm_status_table(state: ImpactToolState) -> Table:
                 status.get("source", "indisponibil"),
                 str(status.get("cache_date", "indisponibil"))[:19],
                 status.get("completeness", "necunoscută"),
+                (
+                    f"{float(status['duration_seconds']):.2f} s"
+                    if status.get("duration_seconds") is not None
+                    else "indisponibilă"
+                ),
             ]
         )
     if len(rows) == 1:
-        rows.append(["Date OSM", "0", "indisponibil", "indisponibil", "necunoscută"])
+        rows.append([
+            "Date OSM",
+            "indisponibil",
+            "indisponibil",
+            "indisponibil",
+            "necunoscută",
+            "indisponibilă",
+        ])
     table = Table(rows, repeatRows=1)
     table.setStyle(_table_style())
     return table
@@ -439,11 +563,23 @@ def _table_style() -> TableStyle:
 
 def _executive_summary(state: ImpactToolState) -> str:
     metrics = (state.analysis_results.get("sar") or {}).get("metrics", {})
+    new_water = _metric_numeric_value(metrics.get("sar_new_water_area_km2"))
     return (
         f"Analiza preliminară a evidențiat "
-        f"{metrics.get('sar_new_water_area_km2', 0)} km² de apă nouă prin SAR. "
+        f"{_format_value(new_water) if new_water is not None else '[NECALCULAT]'} km² "
+        "de apă nouă prin SAR. "
         "Rezultatul este destinat suportului decizional."
     )
+
+
+def _metric_numeric_value(metric: Any) -> float | None:
+    if isinstance(metric, dict):
+        if metric.get("status") != "reușit" or metric.get("value") is None:
+            return None
+        return float(metric["value"])
+    if metric is None:
+        return None
+    return float(metric)
 
 
 def _dynamic_world_summary(state: ImpactToolState) -> str:
@@ -456,13 +592,15 @@ def _dynamic_world_summary(state: ImpactToolState) -> str:
     product_types = result.get("product_types", {})
     return (
         f"Status: {result.get('status', 'indisponibil')}. "
+        f"Sursă: {result.get('source', 'Google Dynamic World V1')}. "
+        f"Durată: {_duration_label(result.get('duration_seconds'))}. "
         f"BEFORE: perioada {periods.get('before', 'indisponibilă')}, "
         f"data efectivă {dates.get('before', 'indisponibilă')}, "
-        f"acoperire {float(coverage.get('before') or 0) * 100:.1f}%, "
+        f"acoperire {_coverage_label(coverage.get('before'))}, "
         f"produs {product_types.get('before', 'indisponibil')}. "
         f"AFTER: perioada {periods.get('after', 'indisponibilă')}, "
         f"data efectivă {dates.get('after', 'indisponibilă')}, "
-        f"acoperire {float(coverage.get('after') or 0) * 100:.1f}%, "
+        f"acoperire {_coverage_label(coverage.get('after'))}, "
         f"produs {product_types.get('after', 'indisponibil')}."
     )
 
@@ -521,15 +659,42 @@ def _osm_summary(state: ImpactToolState) -> str:
     if not impact:
         return "Datele OSM sunt indisponibile sau parțiale."
     metrics = impact.get("metrics", {})
+    if not metrics:
+        return "Metricile de impact OSM sunt indisponibile."
     return (
-        f"Clădiri intersectate direct: {int(metrics.get('buildings_direct', 0))}; "
-        f"clădiri în buffer: {int(metrics.get('buildings_buffer', 0))}; "
-        f"drumuri intersectate direct: {float(metrics.get('roads_direct_km', 0)):.3f} km; "
+        f"Clădiri intersectate direct: {_metric_or_unavailable(metrics, 'buildings_direct')}; "
+        f"clădiri în buffer: {_metric_or_unavailable(metrics, 'buildings_buffer')}; "
+        f"drumuri intersectate direct: {_metric_or_unavailable(metrics, 'roads_direct_km', ' km')}; "
         f"căi ferate intersectate direct: "
-        f"{float(metrics.get('railways_direct_km', 0)):.3f} km; "
+        f"{_metric_or_unavailable(metrics, 'railways_direct_km', ' km')}; "
         f"obiective critice intersectate direct: "
-        f"{int(metrics.get('critical_direct', 0))}."
+        f"{_metric_or_unavailable(metrics, 'critical_direct')}."
     )
+
+
+def _coverage_label(value: Any) -> str:
+    if value is None:
+        return "indisponibilă"
+    return f"{float(value) * 100:.1f}%"
+
+
+def _duration_label(value: Any) -> str:
+    if value is None:
+        return "indisponibilă"
+    return f"{float(value):.2f} s"
+
+
+def _metric_or_unavailable(
+    metrics: dict[str, Any],
+    key: str,
+    suffix: str = "",
+) -> str:
+    value = metrics.get(key)
+    if value is None:
+        return "indisponibil"
+    if isinstance(value, float):
+        return f"{value:.3f}{suffix}"
+    return f"{value}{suffix}"
 
 
 def _timings_summary(state: ImpactToolState) -> str:
@@ -571,7 +736,13 @@ def _synthetic_map(state: ImpactToolState) -> BytesIO:
     axis.set_facecolor("#f8fafc")
     _plot_geometry(axis, state.active_geometry, "#2563eb", 1.5, 0.02)
     sar = state.analysis_results.get("sar") or {}
-    _plot_geometry(axis, sar.get("new_water_geometry"), "#06b6d4", 1.2, 0.6)
+    _plot_geometry(
+        axis,
+        sar.get("new_water_display_geometry") or sar.get("new_water_geometry"),
+        "#06b6d4",
+        1.2,
+        0.6,
+    )
     impact = state.analysis_results.get("osm_impact") or {}
     _plot_geometry(axis, impact.get("buffer_geometry"), "#f59e0b", 1.0, 0.12)
     layer_styles = {
@@ -710,7 +881,9 @@ def _chart_datasets(state: ImpactToolState) -> list[tuple[str, dict[str, float]]
         (
             "Suprafețe de apă (km²)",
             {
-                "SAR": float(sar.get("sar_new_water_area_km2", 0)),
+                "SAR": _metric_numeric_value(
+                    sar.get("sar_new_water_area_km2")
+                ) or 0.0,
                 "Dynamic World": _dynamic_metric_value(
                     dynamic,
                     "dynamic_world_new_water_area_km2",

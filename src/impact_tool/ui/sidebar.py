@@ -17,6 +17,7 @@ from src.gee.sentinel1_scene_explorer import search_sentinel1_scenes_result
 from src.impact_tool.cache import PersistentCache
 from src.impact_tool.models import BUFFER_MAX_METERS, BUFFER_MIN_METERS, ImpactToolState
 from src.impact_tool.presets import GALATI_PRESET_NAME, apply_galati_preset
+from src.impact_tool.sar import recommended_sar_threshold
 from src.impact_tool.scenes import (
     confirm_scene_pair,
     hydrate_scene_thumbnails,
@@ -34,6 +35,7 @@ from src.impact_tool.state import (
     reset_comparison,
     set_county,
     update_buffer,
+    update_sar_parameters,
 )
 from src.impact_tool.workflow import workflow_steps
 
@@ -173,28 +175,108 @@ def render_sidebar(st: Any, state: ImpactToolState) -> tuple[dict | None, list[s
             state.run_requested = True
 
         with st.expander("Parametri SAR avansați", expanded=False):
-            state.analysis_parameters["water_threshold"] = st.number_input(
-                "Prag apă SAR (dB)",
-                min_value=-30.0,
-                max_value=-5.0,
-                value=float(state.analysis_parameters["water_threshold"]),
-                step=0.5,
-                help="Pixelii cu retroîmprăștiere sub prag sunt considerați apă observată automat prin SAR.",
+            polarization_for_threshold = (
+                (state.before_scene or {}).get("polarization")
+                or state.scene_query.get("polarization")
+                or "VH"
             )
-            state.analysis_parameters["smoothing_meters"] = st.slider(
+            threshold_modes = ["conservator", "echilibrat", "sensibil", "manual"]
+            threshold_mode = st.selectbox(
+                "Mod prag SAR",
+                threshold_modes,
+                index=threshold_modes.index(state.sar_threshold_mode),
+            )
+            if threshold_mode == "manual":
+                water_threshold = st.number_input(
+                    "Prag apă SAR manual (dB)",
+                    min_value=-30.0,
+                    max_value=-5.0,
+                    value=float(state.analysis_parameters["water_threshold"]),
+                    step=0.5,
+                    help="Valoarea manuală este păstrată când polarizarea se schimbă.",
+                )
+            else:
+                water_threshold = recommended_sar_threshold(
+                    polarization_for_threshold,
+                    threshold_mode,
+                )
+                st.caption(
+                    f"Recomandare {polarization_for_threshold} / {threshold_mode}: "
+                    f"{water_threshold:.1f} dB"
+                )
+            state.sar_threshold_mode = threshold_mode
+            smoothing_meters = st.slider(
                 "Smoothing SAR (m)",
                 0,
                 100,
                 int(state.analysis_parameters["smoothing_meters"]),
                 step=10,
             )
-            state.analysis_parameters["minimum_connected_pixels"] = st.slider(
+            minimum_connected_pixels = st.slider(
                 "Minimum connected pixels",
                 0,
                 50,
                 int(state.analysis_parameters["minimum_connected_pixels"]),
                 step=1,
             )
+            analysis_scale_meters = st.select_slider(
+                "Scara metricilor SAR (m)",
+                options=[10, 20, 30],
+                value=int(state.analysis_parameters.get("analysis_scale_meters", 10)),
+            )
+            vectorization_scale_meters = st.select_slider(
+                "Scara vectorizării SAR (m)",
+                options=[10, 20, 30],
+                value=int(
+                    state.analysis_parameters.get(
+                        "vectorization_scale_meters",
+                        analysis_scale_meters,
+                    )
+                ),
+            )
+            minimum_polygon_area_m2 = st.number_input(
+                "Suprafață minimă poligon operațional (m²)",
+                min_value=0,
+                max_value=100000,
+                value=int(
+                    state.analysis_parameters.get(
+                        "minimum_polygon_area_m2",
+                        1000,
+                    )
+                ),
+                step=100,
+            )
+            simplification_tolerance_m = st.slider(
+                "Toleranță simplificare hartă (m)",
+                0,
+                100,
+                int(
+                    state.analysis_parameters.get(
+                        "geometry_simplification_tolerance_m",
+                        10,
+                    )
+                ),
+                step=5,
+            )
+            update_sar_parameters(
+                state,
+                water_threshold=float(water_threshold),
+                smoothing_meters=int(smoothing_meters),
+                minimum_connected_pixels=int(minimum_connected_pixels),
+                analysis_scale_meters=int(analysis_scale_meters),
+                vectorization_scale_meters=int(vectorization_scale_meters),
+                minimum_polygon_area_m2=int(minimum_polygon_area_m2),
+                geometry_simplification_tolerance_m=int(
+                    simplification_tolerance_m
+                ),
+            )
+            if analysis_scale_meters != vectorization_scale_meters:
+                st.warning(
+                    "Scara vectorizării diferă de scara metricilor. Rasterul SAR "
+                    "rămâne autoritativ pentru suprafață."
+                )
+            if state.sar_parameters_message:
+                st.warning(state.sar_parameters_message)
 
         if state.comparison_ready:
             scene_compare_active = st.toggle(
@@ -377,7 +459,37 @@ def _render_scene_pair(st: Any, state: ImpactToolState) -> None:
     )
     if selected_pair_changed and state.scene_compare_active:
         reset_comparison(state)
-    validation = confirm_scene_pair(before, after)
+    relative_orbit_mismatch = bool(
+        before
+        and after
+        and before.get("relative_orbit") != after.get("relative_orbit")
+    )
+    low_coverage = any(
+        float((scene or {}).get("coverage_percent") or 0) < 95
+        for scene in (before, after)
+    )
+    state.relative_orbit_override = st.checkbox(
+        "Mod experimental: accept orbite relative diferite",
+        value=state.relative_orbit_override,
+        disabled=not relative_orbit_mismatch,
+        help="Nu reprezintă configurația recomandată pentru rularea finală.",
+    )
+    state.low_coverage_override = st.checkbox(
+        "Accept acoperire sub 95% pentru rularea finală",
+        value=state.low_coverage_override,
+        disabled=not low_coverage,
+    )
+    if state.relative_orbit_override:
+        st.warning(
+            "Override experimental activ: orbitele relative diferă. "
+            "Rezultatul necesită interpretare prudentă."
+        )
+    validation = confirm_scene_pair(
+        before,
+        after,
+        allow_relative_orbit_override=state.relative_orbit_override,
+        allow_low_coverage_override=state.low_coverage_override,
+    )
     for error in validation["errors"]:
         st.error(error)
     for warning in validation["warnings"]:
@@ -405,7 +517,14 @@ def _render_scene_pair(st: Any, state: ImpactToolState) -> None:
         disabled=not validation["compatible"],
         key="confirm_scene_pair",
     ):
-        confirmation = confirm_scene_pair(before, after, accept_warnings)
+        confirmation = confirm_scene_pair(
+            before,
+            after,
+            accept_warnings,
+            allow_relative_orbit_override=state.relative_orbit_override,
+            allow_low_coverage_override=state.low_coverage_override,
+        )
+        state.scene_pair_validation = confirmation
         apply_scene_pair(state, before, after, confirmation["confirmed"])
         if confirmation["confirmed"]:
             state.preview_scene_id = ""

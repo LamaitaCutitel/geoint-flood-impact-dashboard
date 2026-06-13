@@ -1,10 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: rezultatul SAR real nu a fost generat și verificat vizual.
-
-Pași manuali:
-1. rulează analiza rapidă sau detaliată;
-2. activează layerul de apă nouă SAR;
-3. păstrează vizibile bufferul, legenda și aria analizată;
-4. verifică dacă rezultatul este plauzibil;
-5. salvează captura `06_rezultat_sar.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: rezultatul SAR.

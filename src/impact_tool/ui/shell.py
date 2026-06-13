@@ -15,6 +15,7 @@ from src.impact_tool.aoi import geometry_from_drawing
 from src.impact_tool.analysis import (
     execute_analysis,
     execute_dynamic_world,
+    execute_sar_qa,
     execute_osm_loading,
     recalculate_osm_impact,
 )
@@ -26,8 +27,10 @@ from src.impact_tool.report import (
     generate_cached_report,
     report_filename,
     save_report_pdf,
+    validate_report_pdf,
 )
 from src.impact_tool.sar import sar_layer_definitions
+from src.impact_tool.sar_qa import sar_qa_layer_definitions
 from src.impact_tool.state import initialize_state, record_timing, set_aoi
 from src.impact_tool.ui.results import render_result_tabs
 from src.impact_tool.ui.sidebar import render_scene_explorer, render_sidebar
@@ -125,6 +128,11 @@ def render_app(st_module: Any | None = None) -> None:
             execute_dynamic_world(state)
         st.rerun()
 
+    if state.sar_qa_requested:
+        with st.spinner("Se rulează analiza de sensibilitate SAR..."):
+            execute_sar_qa(state)
+        st.rerun()
+
     if state.report_requested:
         with st.spinner("Se generează raportul PDF..."):
             report_started = perf_counter()
@@ -132,6 +140,10 @@ def render_app(st_module: Any | None = None) -> None:
             record_timing(state, "PDF", perf_counter() - report_started)
             state.report_filename = report_filename(state)
             saved_path = save_report_pdf(state, state.report_bytes)
+            state.analysis_results["pdf_validation"] = validate_report_pdf(
+                state.report_bytes,
+                saved_path,
+            )
             state.report_requested = False
             state.cache_events.append(
                 "Raport PDF încărcat din cache."
@@ -247,6 +259,8 @@ def _analysis_layers(state: Any) -> list[dict[str, Any]]:
     layers: list[dict[str, Any]] = []
     if state.analysis_results.get("sar"):
         layers.extend(sar_layer_definitions(state.analysis_results["sar"]))
+    if state.analysis_results.get("sar_qa"):
+        layers.extend(sar_qa_layer_definitions(state.analysis_results["sar_qa"]))
     if state.analysis_results.get("dynamic_world"):
         layers.extend(
             dynamic_world_layer_definitions(state.analysis_results["dynamic_world"])
@@ -262,6 +276,10 @@ def _comparison_layers(state: Any) -> dict[str, dict[str, str]]:
     definitions: list[dict[str, Any]] = []
     if state.analysis_results.get("sar"):
         definitions.extend(sar_layer_definitions(state.analysis_results["sar"]))
+    if state.analysis_results.get("sar_qa"):
+        definitions.extend(
+            sar_qa_layer_definitions(state.analysis_results["sar_qa"])
+        )
     if state.analysis_results.get("dynamic_world"):
         definitions.extend(
             dynamic_world_layer_definitions(state.analysis_results["dynamic_world"])
@@ -325,6 +343,10 @@ def _grouped_layer_definitions(state: Any) -> dict[str, list[dict[str, Any]]]:
     sar = state.analysis_results.get("sar")
     if sar:
         groups["Analiză SAR"] = sar_layer_definitions(sar)
+        if state.analysis_results.get("sar_qa"):
+            groups["Analiză SAR"].extend(
+                sar_qa_layer_definitions(state.analysis_results["sar_qa"])
+            )
     dynamic = state.analysis_results.get("dynamic_world")
     if dynamic:
         definitions = dynamic_world_layer_definitions(dynamic)

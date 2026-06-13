@@ -1,9 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: analiza Dynamic World reală nu a fost rulată și inspectată vizual.
-
-Pași manuali:
-1. rulează analiza detaliată;
-2. deschide secțiunea Dynamic World;
-3. păstrează vizibile datele BEFORE/AFTER, acoperirea și tipul produsului;
-4. salvează captura `07_dynamic_world.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: Dynamic World.

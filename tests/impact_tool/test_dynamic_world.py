@@ -13,11 +13,17 @@ from src.impact_tool.dynamic_world import (
     dynamic_world_layer_definitions,
     scene_day_period,
 )
+from src.impact_tool.ui.results import _coverage_label
 
 
 def test_coverage_below_85_percent_uses_mosaic() -> None:
     assert _needs_mosaic(0.8499)
     assert not _needs_mosaic(0.85)
+
+
+def test_missing_coverage_is_not_rendered_as_false_zero() -> None:
+    assert _coverage_label(None) == "indisponibilă"
+    assert _coverage_label(0) == "0.0%"
 
 
 def test_green_status_requires_all_mandatory_tiles() -> None:

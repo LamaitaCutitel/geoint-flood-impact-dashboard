@@ -86,7 +86,7 @@ def test_failed_osm_does_not_mark_workflow_complete(monkeypatch) -> None:
     monkeypatch.setattr(analysis, "execute_osm_loading", lambda *args, **kwargs: False)
 
     assert analysis.execute_analysis(state, mode="rapid")
-    assert state.analysis_results["sar_status"] == "reușit"
+    assert state.analysis_results["sar_status"]["osm_impact_available"] is False
     assert state.analysis_results["workflow_status"] == "osm_indisponibil"
 
 
@@ -208,6 +208,47 @@ def test_osm_query_area_stays_at_1000_m_when_analytic_buffer_changes(
     state.buffer_meters = 1000
     assert analysis.execute_osm_loading(state)
     assert buffer_calls == [1000, 1000]
+
+
+def test_osm_impact_uses_operational_sar_geometry(monkeypatch) -> None:
+    operational = {
+        "type": "Polygon",
+        "coordinates": [[[27, 45], [28, 45], [28, 46], [27, 45]]],
+    }
+    display = {
+        "type": "Polygon",
+        "coordinates": [[[27.1, 45.1], [27.9, 45.1], [27.9, 45.9], [27.1, 45.1]]],
+    }
+    state = ImpactToolState(
+        analysis_complete=True,
+        county_geometry=operational,
+        osm_cache_refs={"roads": "cache-key"},
+        analysis_results={
+            "sar": {
+                "new_water_geometry": operational,
+                "new_water_display_geometry": display,
+            },
+            "osm_raw": {"cache_refs": {"roads": "cache-key"}},
+        },
+    )
+    captured = {}
+    monkeypatch.setattr(
+        analysis,
+        "load_cached_osm_layers",
+        lambda *args: {"osm_roads": {"type": "FeatureCollection", "features": []}},
+    )
+    monkeypatch.setattr(
+        analysis,
+        "classify_osm_impact",
+        lambda layers, water_geometry, *args, **kwargs: captured.setdefault(
+            "water",
+            water_geometry,
+        )
+        or {"layers": {}, "metrics": {}},
+    )
+
+    assert analysis.recalculate_osm_impact(state)
+    assert captured["water"] == operational
 
 
 def test_osm_complete_requires_ok_and_complete_for_every_category() -> None:

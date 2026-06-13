@@ -1,9 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: este necesară rularea manuală în browser.
-
-Pași manuali:
-1. pornește aplicația;
-2. activează presetul `Inundații Galați — septembrie 2024`;
-3. verifică aria activă și mesajul privind cache-ul local;
-4. salvează captura `02_preset_galati.png` la minimum 1440 × 900.
+[NEVALIDAT TEHNIC] Captură manuală necesară: presetul Galați.

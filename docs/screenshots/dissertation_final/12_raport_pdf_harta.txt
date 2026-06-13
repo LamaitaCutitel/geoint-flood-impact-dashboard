@@ -1,10 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: raportul PDF final cu rezultate reale nu este disponibil în repository și nu a fost validat vizual.
-
-Pași manuali:
-1. rulează fluxul Galați cap-coadă;
-2. generează și deschide raportul PDF;
-3. navighează la harta sintetică;
-4. verifică legenda, scara și lizibilitatea elementelor;
-5. salvează captura `12_raport_pdf_harta.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: harta din raportul PDF.

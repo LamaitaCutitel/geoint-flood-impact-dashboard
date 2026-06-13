@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.impact_tool.final_export import export_final_run_package
 from src.impact_tool.models import TAB_NAMES, ImpactToolState
 from src.impact_tool.state import reset_analysis_results, reset_scene_selection
+from src.impact_tool.sar_qa import sar_qa_chart_data
 
 
 def render_result_tabs(st: Any, state: ImpactToolState) -> None:
@@ -25,6 +27,28 @@ def render_result_tabs(st: Any, state: ImpactToolState) -> None:
         _render_osm(st, state)
     with tabs[4]:
         st.info("Raportul final devine disponibil după finalizarea analizei.")
+        pdf_validation = state.analysis_results.get("pdf_validation")
+        if pdf_validation:
+            if pdf_validation.get("status") == "disponibil":
+                st.success(
+                    "PDF validat local: "
+                    f"{pdf_validation.get('page_count')} pagini, "
+                    f"{pdf_validation.get('size_bytes')} bytes."
+                )
+            else:
+                st.error(
+                    pdf_validation.get("error")
+                    or "Validarea structurală PDF a eșuat."
+                )
+        if st.button(
+            "Exportă pachetul tehnic al rulării",
+            disabled=not state.analysis_complete,
+            key="export_final_run_package",
+        ):
+            paths = export_final_run_package(state)
+            st.success("Pachetul tehnic al rulării a fost exportat.")
+            for label, path in paths.items():
+                st.caption(f"{label}: {path}")
 
 
 def _render_sar_summary(st: Any, state: ImpactToolState) -> None:
@@ -34,10 +58,69 @@ def _render_sar_summary(st: Any, state: ImpactToolState) -> None:
         return
     metrics = sar.get("metrics", {})
     columns = st.columns(3)
-    columns[0].metric("Apă BEFORE", f"{metrics.get('sar_water_before_area_km2', 0):.3f} km²")
-    columns[1].metric("Apă AFTER", f"{metrics.get('sar_water_after_area_km2', 0):.3f} km²")
-    columns[2].metric("Apă nouă SAR", f"{metrics.get('sar_new_water_area_km2', 0):.3f} km²")
+    _render_sar_metric(columns[0], "Apă BEFORE", metrics.get("sar_water_before_area_km2"))
+    _render_sar_metric(columns[1], "Apă AFTER", metrics.get("sar_water_after_area_km2"))
+    _render_sar_metric(columns[2], "Apă nouă SAR", metrics.get("sar_new_water_area_km2"))
+    tiles = sar.get("tiles", {})
+    vectorization = sar.get("vectorization", {})
+    status_columns = st.columns(4)
+    status_columns[0].caption(
+        "Raster SAR: "
+        + ("disponibil" if any(item.get("status") == "reușit" for item in tiles.values()) else "indisponibil")
+    )
+    status_columns[1].caption(
+        "Metrici: "
+        + ("disponibile" if metrics and all(item.get("status") == "reușit" for item in metrics.values()) else "indisponibile")
+    )
+    status_columns[2].caption(
+        "Vectorizare: "
+        + ("disponibilă" if vectorization.get("status") == "reușit" else "indisponibilă")
+    )
+    status_columns[3].caption(
+        "Impact OSM: "
+        + ("disponibil" if state.analysis_results.get("osm_impact") else "indisponibil")
+    )
+    diagnostics = [
+        {"component": layer_id, **status}
+        for layer_id, status in tiles.items()
+        if status.get("status") != "reușit"
+    ]
+    if vectorization.get("status") == "eroare":
+        diagnostics.append({"component": "vectorizare", **vectorization})
+    if diagnostics:
+        with st.expander("Diagnostic SAR", expanded=True):
+            st.json(diagnostics, expanded=False)
+    if st.button(
+        "Rulează analiza de sensibilitate SAR (QA)",
+        disabled=not state.analysis_complete,
+        key="run_sar_qa",
+    ):
+        state.sar_qa_requested = True
+        st.rerun()
+    qa = state.analysis_results.get("sar_qa")
+    if qa:
+        st.markdown("#### QA prag SAR")
+        st.dataframe(qa.get("rows", []), use_container_width=True, hide_index=True)
+        chart_data = sar_qa_chart_data(qa)
+        if chart_data:
+            st.line_chart(chart_data)
+        else:
+            st.warning("Graficul QA nu este disponibil deoarece metricile lipsesc.")
+        with st.expander("Checklist manual QA", expanded=False):
+            for item in qa.get("manual_checklist", []):
+                st.checkbox(item, key=f"sar-qa-check-{item}")
+    elif state.analysis_results.get("sar_qa_error"):
+        st.warning(state.analysis_results["sar_qa_error"])
     st.caption(f"Durata procesării SAR: {sar.get('duration_seconds', 0):.2f} s")
+
+
+def _render_sar_metric(container: Any, label: str, metric: Any) -> None:
+    if isinstance(metric, dict) and metric.get("status") == "reușit":
+        container.metric(label, f"{float(metric.get('value')):.3f} km²")
+        return
+    error = metric.get("error") if isinstance(metric, dict) else "metrică indisponibilă"
+    container.metric(label, "indisponibil")
+    container.caption(error or "metrică indisponibilă")
 
 
 def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
@@ -68,15 +151,19 @@ def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
     product_types = result.get("product_types", {})
     coverage = result.get("coverage", {})
     st.caption(
+        f"Sursă: {result.get('source', 'Google Dynamic World V1')} | "
+        f"durată: {float(result.get('duration_seconds') or state.timings.get('Dynamic World', 0)):.2f} s"
+    )
+    st.caption(
         "BEFORE: "
         f"căutare {periods.get('before')} · data efectivă {dates.get('before')} · "
-        f"acoperire {float(coverage.get('before') or 0) * 100:.1f}% · "
+        f"acoperire {_coverage_label(coverage.get('before'))} · "
         f"{product_types.get('before') or 'produs indisponibil'}"
     )
     st.caption(
         "AFTER: "
         f"căutare {periods.get('after')} · data efectivă {dates.get('after')} · "
-        f"acoperire {float(coverage.get('after') or 0) * 100:.1f}% · "
+        f"acoperire {_coverage_label(coverage.get('after'))} · "
         f"{product_types.get('after') or 'produs indisponibil'}"
     )
     tile_errors = {
@@ -91,17 +178,20 @@ def _render_dynamic_world(st: Any, state: ImpactToolState) -> None:
     st.bar_chart(result.get("transition_values", {}))
     metric_values = result.get("metric_values", {})
     metric_columns = st.columns(3)
-    metric_columns[0].metric(
+    _render_optional_metric(
+        metric_columns[0],
         "Suprapunere SAR × Dynamic World",
-        f"{float(metric_values.get('sar_dynamic_world_new_water_overlap_area_km2') or 0):.3f} km²",
+        metric_values.get("sar_dynamic_world_new_water_overlap_area_km2"),
     )
-    metric_columns[1].metric(
+    _render_optional_metric(
+        metric_columns[1],
         "Apă nouă doar SAR",
-        f"{float(metric_values.get('new_water_only_sar_area_km2') or 0):.3f} km²",
+        metric_values.get("new_water_only_sar_area_km2"),
     )
-    metric_columns[2].metric(
+    _render_optional_metric(
+        metric_columns[2],
         "Apă nouă doar Dynamic World",
-        f"{float(metric_values.get('new_water_only_dynamic_world_area_km2') or 0):.3f} km²",
+        metric_values.get("new_water_only_dynamic_world_area_km2"),
     )
     osm_correlation = state.analysis_results.get("osm_dynamic_world") or {}
     st.markdown("#### Corelare OSM × Dynamic World")
@@ -137,7 +227,8 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
             st.caption(
                 f"Sursa: {status.get('source', 'necunoscută')} | "
                 f"data cache: {status.get('cache_date', 'indisponibilă')} | "
-                f"completitudine: {status.get('completeness', 'necunoscută')}"
+                f"completitudine: {status.get('completeness', 'necunoscută')} | "
+                f"durată: {float(status.get('duration_seconds') or 0):.2f} s"
             )
             st.success(
                 f"{category}: {status.get('count', 0)} obiecte · {status.get('source')}"
@@ -152,6 +243,16 @@ def _render_osm(st: Any, state: ImpactToolState) -> None:
                 st.rerun()
     impact = state.analysis_results.get("osm_impact")
     if impact:
+        status_counts = impact.get("metrics", {}).get("status_counts", {})
+        if status_counts:
+            st.dataframe(
+                [
+                    {"clasă expunere": label, "elemente": count}
+                    for label, count in status_counts.items()
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
         _render_priority_table(st, state, impact)
         with st.expander("Mod QA", expanded=False):
             st.caption("Informații tehnice pentru verificarea implementării.")
@@ -187,6 +288,24 @@ def _osm_source_label(statuses: dict[str, dict[str, Any]]) -> str:
     if any("overpass" in source for source in sources):
         return "descarcare live Overpass API"
     return ", ".join(sorted(sources))
+
+
+def _coverage_label(value: Any) -> str:
+    if value is None:
+        return "indisponibilă"
+    return f"{float(value) * 100:.1f}%"
+
+
+def _render_optional_metric(
+    container: Any,
+    label: str,
+    value: Any,
+    unit: str = "km²",
+) -> None:
+    if value is None:
+        container.metric(label, "indisponibil")
+        return
+    container.metric(label, f"{float(value):.3f} {unit}")
 
 
 def _render_priority_table(st: Any, state: ImpactToolState, impact: dict[str, Any]) -> None:

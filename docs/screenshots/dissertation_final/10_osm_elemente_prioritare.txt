@@ -1,9 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: tabelul cu elemente prioritare nu conține încă rezultate reale validate.
-
-Pași manuali:
-1. rulează analiza;
-2. deschide tab-ul cu elemente OSM;
-3. păstrează vizibile sursa cache/live, completitudinea și tabelul priorităților;
-4. salvează captura `10_osm_elemente_prioritare.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: elementele OSM prioritare.

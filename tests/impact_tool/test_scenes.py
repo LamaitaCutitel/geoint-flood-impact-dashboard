@@ -99,7 +99,36 @@ def test_relative_orbit_warning_requires_acceptance() -> None:
     before = _scene("before", "2024-01-01T00:00:00Z", 80)
     after = _scene("after", "2024-01-13T00:00:00Z", 81)
     assert not confirm_scene_pair(before, after)["confirmed"]
-    assert confirm_scene_pair(before, after, warnings_accepted=True)["confirmed"]
+    assert not confirm_scene_pair(
+        before,
+        after,
+        warnings_accepted=True,
+    )["confirmed"]
+    assert confirm_scene_pair(
+        before,
+        after,
+        warnings_accepted=True,
+        allow_relative_orbit_override=True,
+    )["confirmed"]
+
+
+def test_low_coverage_warns_and_requires_explicit_override() -> None:
+    before = _scene("before", "2024-01-01T00:00:00Z")
+    after = _scene("after", "2024-01-13T00:00:00Z")
+    after["coverage_percent"] = 93
+
+    blocked = confirm_scene_pair(before, after)
+    overridden = confirm_scene_pair(
+        before,
+        after,
+        warnings_accepted=True,
+        allow_low_coverage_override=True,
+    )
+
+    assert blocked["confirmed"] is False
+    assert any("95%" in message for message in blocked["warnings"])
+    assert overridden["confirmed"] is True
+    assert overridden["overrides"]["low_coverage"] is True
 
 
 def test_swipe_has_single_control_and_fallback() -> None:

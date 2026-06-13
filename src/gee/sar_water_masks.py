@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.gee.dynamic_world import mask_area_km2
-
-
 SAR_WATER_THRESHOLDS = {
     "VH": {
         "Conservator": -20.0,
@@ -65,7 +62,31 @@ def sar_dynamic_world_overlap(sar_new_water: Any, dynamic_world_new_water: Any, 
 
 
 def sar_water_area_metrics(ee: Any, masks: dict[str, Any], aoi: Any, scale: int) -> dict[str, float]:
-    return {f"{key}_area_km2": round(mask_area_km2(ee, mask, aoi, scale), 4) for key, mask in masks.items()}
+    area_image = None
+    band_names = []
+    for key, mask in masks.items():
+        band_name = f"{key}_area_km2"
+        band_names.append(band_name)
+        band = (
+            ee.Image.pixelArea()
+            .divide(1_000_000)
+            .updateMask(mask)
+            .rename(band_name)
+        )
+        area_image = band if area_image is None else area_image.addBands(band)
+    if area_image is None:
+        return {}
+    values = area_image.reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=aoi,
+        scale=scale,
+        maxPixels=1e10,
+        bestEffort=False,
+    ).getInfo()
+    return {
+        band_name: round(float(values.get(band_name) or 0), 4)
+        for band_name in band_names
+    }
 
 
 def overlap_percent(overlap_area_km2: float, sar_new_water_area_km2: float) -> float:

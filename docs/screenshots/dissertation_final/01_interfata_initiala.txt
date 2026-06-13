@@ -1,10 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: mediul disponibil nu poate deschide browserul aplicației și nu poate genera capturi reale.
-
-Pași manuali:
-1. rulează `.\scripts\start_app.ps1`;
-2. deschide `http://127.0.0.1:8501`;
-3. aplică presetul Galați;
-4. păstrează vizibile titlul, statusul GEE, județul Galați și harta;
-5. salvează captura la minimum 1440 × 900 cu numele `01_interfata_initiala.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: interfața inițială.

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import re
+from time import perf_counter
 from typing import Any, Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -86,6 +87,7 @@ def load_osm_categories(
     status: dict[str, dict[str, Any]] = {}
     geometry_hash = osm_geometry_hash(geometry)
     for category in categories:
+        category_started = perf_counter()
         try:
             fetched = _load_category_tiles(
                 bbox=bbox,
@@ -126,6 +128,10 @@ def load_osm_categories(
                 "duplicate_count": fetched["duplicate_count"],
                 "relation_count": fetched["relation_count"],
                 "errors": fetched["errors"],
+                "duration_seconds": round(
+                    perf_counter() - category_started,
+                    3,
+                ),
             }
             cache.set(
                 "osm-metadata",
@@ -140,7 +146,17 @@ def load_osm_categories(
                 },
             )
         except Exception as exc:
-            status[category] = {"ok": False, "count": 0, "error": str(exc)}
+            status[category] = {
+                "ok": False,
+                "count": None,
+                "error": str(exc),
+                "source": "indisponibil",
+                "completeness": "indisponibil",
+                "duration_seconds": round(
+                    perf_counter() - category_started,
+                    3,
+                ),
+            }
     return {
         "layers": layers,
         "status": status,

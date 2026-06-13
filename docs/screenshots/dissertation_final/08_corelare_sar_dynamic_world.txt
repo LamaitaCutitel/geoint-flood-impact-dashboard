@@ -1,9 +1,1 @@
-[CAPTURĂ NEREALIZATĂ AUTOMAT]
-
-Motiv: corelarea multisursă reală nu a fost generată și verificată vizual.
-
-Pași manuali:
-1. rulează analiza detaliată;
-2. activează layerele de suprapunere, doar SAR și doar Dynamic World;
-3. păstrează vizibile legenda și aria analizată;
-4. salvează captura `08_corelare_sar_dynamic_world.png`.
+[NEVALIDAT TEHNIC] Captură manuală necesară: corelarea SAR/Dynamic World.

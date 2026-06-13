@@ -14,10 +14,23 @@ STATE_KEY = "impact_tool_state"
 def initialize_state(session_state: MutableMapping[str, Any]) -> ImpactToolState:
     current = session_state.get(STATE_KEY)
     if isinstance(current, ImpactToolState):
+        _migrate_sar_parameters(current)
         return current
     state = ImpactToolState()
     session_state[STATE_KEY] = state
     return state
+
+
+def _migrate_sar_parameters(state: ImpactToolState) -> None:
+    legacy_scale = state.analysis_parameters.pop("scale_meters", 10)
+    defaults = {
+        "analysis_scale_meters": legacy_scale,
+        "vectorization_scale_meters": 30,
+        "minimum_polygon_area_m2": 1000,
+        "geometry_simplification_tolerance_m": 10,
+    }
+    for key, value in defaults.items():
+        state.analysis_parameters.setdefault(key, value)
 
 
 def state_snapshot(state: ImpactToolState) -> dict[str, Any]:
@@ -57,6 +70,9 @@ def reset_scene_selection(state: ImpactToolState) -> None:
     state.scene_gallery_limit = 8
     state.scene_current_id = ""
     state.scenes_confirmed = False
+    state.scene_pair_validation.clear()
+    state.relative_orbit_override = False
+    state.low_coverage_override = False
     reset_comparison(state)
     invalidate_report(state)
     state.cache_events.append("Selecția scenelor a fost resetată.")
@@ -90,6 +106,33 @@ def update_buffer(state: ImpactToolState, buffer_meters: int) -> bool:
     state.cache_events.append(
         f"Se recalculează impactul pentru bufferul de {buffer_meters} m."
     )
+    return True
+
+
+def update_sar_parameters(state: ImpactToolState, **parameters: Any) -> bool:
+    supported = {
+        "water_threshold",
+        "smoothing_meters",
+        "minimum_connected_pixels",
+        "analysis_scale_meters",
+        "vectorization_scale_meters",
+        "minimum_polygon_area_m2",
+        "geometry_simplification_tolerance_m",
+    }
+    updates = {
+        key: value
+        for key, value in parameters.items()
+        if key in supported and state.analysis_parameters.get(key) != value
+    }
+    if not updates:
+        return False
+    state.analysis_parameters.update(updates)
+    reset_analysis_results(state)
+    state.layer_compare_active = False
+    state.sar_parameters_message = (
+        "Parametrii SAR s-au schimbat. Rulează din nou analiza."
+    )
+    state.cache_events.append(state.sar_parameters_message)
     return True
 
 

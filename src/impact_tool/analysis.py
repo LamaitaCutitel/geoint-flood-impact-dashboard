@@ -20,6 +20,7 @@ from src.impact_tool.osm import (
 )
 from src.impact_tool.osm_impact import buffered_geometry, classify_osm_impact
 from src.impact_tool.sar import SarParameters, run_sar_analysis
+from src.impact_tool.sar_qa import run_sar_threshold_sweep
 from src.impact_tool.state import invalidate_report, record_timing, reset_comparison
 
 
@@ -56,7 +57,30 @@ def execute_analysis(
             parameters,
         )
         state.analysis_results["sar"] = sar
-        state.analysis_results["sar_status"] = "reușit"
+        state.analysis_results["sar_status"] = {
+            "raster_available": any(
+                (
+                    item.get("status") == "reușit"
+                    if isinstance(item, dict)
+                    else bool(item)
+                )
+                for item in sar.get("tiles", {}).values()
+            ),
+            "metrics_available": bool(sar.get("metrics")) and all(
+                (
+                    item.get("status") == "reușit"
+                    if isinstance(item, dict)
+                    else item is not None
+                )
+                for item in sar.get("metrics", {}).values()
+            ),
+            "vectorization_available": (
+                sar.get("vectorization", {}).get("status") == "reușit"
+                or bool(sar.get("new_water_geometry"))
+            ),
+            "osm_impact_available": False,
+        }
+        state.sar_parameters_message = ""
         reset_comparison(state)
         record_timing(state, "SAR", sar.get("duration_seconds", 0))
         record_timing(
@@ -111,6 +135,9 @@ def execute_analysis(
                 if osm_success
                 else "osm_indisponibil"
             )
+            state.analysis_results["sar_status"]["osm_impact_available"] = bool(
+                state.analysis_results.get("osm_impact")
+            )
         else:
             state.analysis_results["workflow_status"] = "sar_reușit"
         _progress(state, progress_callback, 100, "Analiza impactului a fost finalizată")
@@ -160,6 +187,8 @@ def execute_dynamic_world(
             state.after_scene,
             sar["products"]["sar_new_water"],
         )
+        result["duration_seconds"] = round(perf_counter() - started, 3)
+        result["source"] = "Google Dynamic World V1 prin Google Earth Engine"
         state.analysis_results["dynamic_world"] = result
         if result.get("status") == "reușit":
             if "dynamic_world_new_water" not in state.active_layers:
@@ -189,6 +218,53 @@ def execute_dynamic_world(
     finally:
         record_timing(state, "Dynamic World", perf_counter() - started)
         state.dynamic_world_requested = False
+
+
+def execute_sar_qa(state: ImpactToolState) -> bool:
+    invalidate_report(state)
+    if not state.analysis_complete or not state.before_scene or not state.after_scene:
+        state.analysis_results["sar_qa_error"] = (
+            "Modul QA necesită mai întâi o analiză SAR finalizată."
+        )
+        state.sar_qa_requested = False
+        return False
+    started = perf_counter()
+    try:
+        gee_status = initialize_earth_engine()
+        if not gee_status.available or gee_status.ee is None:
+            raise RuntimeError(gee_status.message)
+        aoi = build_aoi_from_geometry(
+            gee_status.ee,
+            state.active_geometry,
+            state.active_area_bbox,
+        )
+        parameters = state.analysis_parameters
+        result = run_sar_threshold_sweep(
+            gee_status.ee,
+            aoi,
+            state.before_scene,
+            state.after_scene,
+            analysis_scale_meters=int(
+                parameters.get("analysis_scale_meters", 10)
+            ),
+            smoothing_meters=int(parameters.get("smoothing_meters", 0)),
+            minimum_connected_pixels=int(
+                parameters.get("minimum_connected_pixels", 8)
+            ),
+            final_threshold=float(parameters.get("water_threshold", -18)),
+        )
+        state.analysis_results["sar_qa"] = result
+        state.analysis_results.pop("sar_qa_error", None)
+        state.cache_events.append(
+            "Analiza de sensibilitate SAR a fost calculată separat de rezultatul final."
+        )
+        return True
+    except Exception as exc:
+        state.analysis_results["sar_qa_error"] = str(exc)
+        return False
+    finally:
+        record_timing(state, "QA SAR", perf_counter() - started)
+        state.sar_qa_requested = False
 
 
 def execute_osm_loading(

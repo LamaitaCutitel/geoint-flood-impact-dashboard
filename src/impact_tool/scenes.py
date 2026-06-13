@@ -193,12 +193,65 @@ def confirm_scene_pair(
     before: dict[str, Any] | None,
     after: dict[str, Any] | None,
     warnings_accepted: bool = False,
+    allow_relative_orbit_override: bool = False,
+    allow_low_coverage_override: bool = False,
+    minimum_coverage_percent: float = 95.0,
 ) -> dict[str, Any]:
     validation = validate_scene_pair(before, after)
-    confirmed = validation["compatible"] and (
-        not validation["requires_confirmation"] or warnings_accepted
+    errors = list(validation["errors"])
+    warnings = list(validation["warnings"])
+    relative_orbit_mismatch = bool(
+        before
+        and after
+        and before.get("relative_orbit") != after.get("relative_orbit")
     )
-    return {**validation, "confirmed": confirmed}
+    if relative_orbit_mismatch and not allow_relative_orbit_override:
+        errors.append(
+            "Pereche blocată: orbita relativă diferă. Override-ul este permis "
+            "numai în modul experimental."
+        )
+    low_coverage = [
+        role
+        for role, scene in (("BEFORE", before), ("AFTER", after))
+        if scene
+        and float(scene.get("coverage_percent") or 0) < minimum_coverage_percent
+    ]
+    if low_coverage:
+        warnings.append(
+            "Acoperirea recomandată pentru rularea finală este minimum "
+            f"{minimum_coverage_percent:.0f}%: {', '.join(low_coverage)}."
+        )
+        if not allow_low_coverage_override:
+            errors.append(
+                "Pereche blocată pentru rularea finală din cauza acoperirii sub "
+                f"{minimum_coverage_percent:.0f}%."
+            )
+    compatible = not errors
+    requires_confirmation = compatible and bool(warnings)
+    confirmed = compatible and (
+        not requires_confirmation or warnings_accepted
+    )
+    return {
+        **validation,
+        "compatible": compatible,
+        "requires_confirmation": requires_confirmation,
+        "errors": errors,
+        "warnings": list(dict.fromkeys(warnings)),
+        "confirmed": confirmed,
+        "compatibility": {
+            "same_polarization": bool(before and after and before.get("polarization") == after.get("polarization")),
+            "same_instrument_mode": bool(before and after and before.get("instrument_mode") == after.get("instrument_mode")),
+            "same_orbit_pass": bool(before and after and before.get("orbit_pass") == after.get("orbit_pass")),
+            "same_relative_orbit": not relative_orbit_mismatch,
+            "minimum_coverage_percent": minimum_coverage_percent,
+        },
+        "overrides": {
+            "relative_orbit_experimental": bool(
+                relative_orbit_mismatch and allow_relative_orbit_override
+            ),
+            "low_coverage": bool(low_coverage and allow_low_coverage_override),
+        },
+    }
 
 
 def preview_tiles_for_pair(

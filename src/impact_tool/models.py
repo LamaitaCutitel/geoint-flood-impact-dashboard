@@ -58,6 +58,9 @@ class ImpactToolState:
     preview_scene_id: str = ""
     preview_scene_tile: str = ""
     scenes_confirmed: bool = False
+    scene_pair_validation: dict = field(default_factory=dict)
+    relative_orbit_override: bool = False
+    low_coverage_override: bool = False
     comparison_ready: bool = False
     preview_mode: str = "Radar brut în tonuri de gri"
     preview_tiles: dict[str, str] = field(default_factory=dict)
@@ -78,13 +81,20 @@ class ImpactToolState:
             "water_threshold": -18.0,
             "smoothing_meters": 0,
             "minimum_connected_pixels": 8,
+            "analysis_scale_meters": 10,
+            "vectorization_scale_meters": 30,
+            "minimum_polygon_area_m2": 1000,
+            "geometry_simplification_tolerance_m": 10,
         }
     )
+    sar_threshold_mode: str = "echilibrat"
     analysis_error: str = ""
+    sar_parameters_message: str = ""
     analysis_running: bool = False
     analysis_mode: str = "rapid"
     run_requested: bool = False
     dynamic_world_requested: bool = False
+    sar_qa_requested: bool = False
     analysis_progress: int = 0
     analysis_stage: str = "Pregătit pentru analiză"
     osm_status: dict = field(default_factory=dict)

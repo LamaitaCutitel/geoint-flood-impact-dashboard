@@ -44,10 +44,17 @@ if ($LASTEXITCODE -ne 0) { throw "Pregatirea cache-ului OSM Galati a esuat." }
 $checks.Add("- Cache OSM Galati: PASS")
 
 if (-not $SkipFullTests) {
-    & $python -m pytest -q --basetemp=.pytest-tmp-local-run 2>&1 |
-        Tee-Object -FilePath (Join-Path $logDirectory "pytest-local-run.log")
-    if ($LASTEXITCODE -ne 0) { throw "Testele pytest au esuat." }
-    $checks.Add("- Pytest complet: PASS")
+    $pytestBaseTemp = Join-Path $projectRoot ".codex-test-tmp-local-run-$PID"
+    try {
+        & $python -m pytest -q --basetemp=$pytestBaseTemp -p no:cacheprovider 2>&1 |
+            Tee-Object -FilePath (Join-Path $logDirectory "pytest-local-run.log")
+        if ($LASTEXITCODE -ne 0) { throw "Testele pytest au esuat." }
+        $checks.Add("- Pytest complet: PASS")
+    } finally {
+        if (Test-Path -LiteralPath $pytestBaseTemp) {
+            Remove-Item -LiteralPath $pytestBaseTemp -Recurse -Force
+        }
+    }
 }
 
 $streamlitLog = Join-Path $logDirectory "streamlit-local-run.log"
