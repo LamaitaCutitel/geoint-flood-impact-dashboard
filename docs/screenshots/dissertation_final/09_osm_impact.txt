@@ -1,0 +1,9 @@
+[CAPTURĂ NEREALIZATĂ AUTOMAT]
+
+Motiv: impactul OSM real depinde de rularea SAR finală și nu a fost verificat vizual.
+
+Pași manuali:
+1. rulează analiza rapidă sau detaliată după confirmarea scenelor;
+2. activează layerele pentru clădiri, drumuri, poduri și obiective critice;
+3. păstrează vizibile bufferul și legenda;
+4. salvează captura `09_osm_impact.png`.
