@@ -1,0 +1,30 @@
+categorie,indicator,valoare,status,observatii
+metadata,repository,LamaitaCutitel/geoint-flood-impact-dashboard,VALIDAT,
+metadata,branch,review/dissertation-ready-local-run,VALIDAT,
+metadata,commit_auditat_aplicatie,abe48fb2102ad90c2577f1b33e40d78ddd61ef2f,VALIDAT,
+metadata,rulare_locala_validata,2026-06-13 05:00:16 +03:00,VALIDAT,
+metadata,python,3.12.7,VALIDAT,
+metadata,durata_verificare_locala_automata_s,35.66,VALIDAT,Nu reprezinta durata analizei GEE
+arie,judet,Galati,PARȚIAL VALIDAT,Preset si cache pregatite; fluxul final trebuie rulat manual
+arie,aoi_folosit,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+arie,suprafata_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sentinel1,before_scene_id,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sentinel1,after_scene_id,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,prag_apa_db,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,smoothing_m,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,minimum_connected_pixels,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,apa_before_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,apa_after_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+sar,apa_noua_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+dynamic_world,data_before,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+dynamic_world,data_after,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+dynamic_world,apa_noua_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+dynamic_world,suprapunere_sar_km2,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+osm,cache_galati,validat,VALIDAT,Categorii: buildings; roads; railways; bridges; critical; critical_rapid
+osm,cladiri_direct,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+osm,cladiri_buffer,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+osm,drumuri_direct_km,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+osm,poduri_direct,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+osm,obiective_critice_direct,[DE COMPLETAT DUPĂ RULAREA FINALĂ],NEVALIDAT TEHNIC,
+pdf,locatie_locala,data/output/reports/,PARȚIAL VALIDAT,Generator structural testat
+pdf,validare_vizuala,[NEVALIDAT TEHNIC],NEVALIDAT TEHNIC,
