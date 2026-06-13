@@ -13,9 +13,12 @@ Durata: 34.54 secunde
 - Pytest complet: PASS
 - Streamlit health check: PASS
 - Export curat: PASS (2.68 MiB, 227 intrari, fara secrete/cache/venv)
+- Configuratie locala GEE detectata: PASS
 
 ## Observatii
 
 - Testul automat nu executa o analiza GEE completa si nu confirma situatia din teren.
 - Fluxul vizual, selectia scenelor si descarcarea PDF necesita verificare in browser.
+- Capturile automate nu au fost generate: browserul integrat a fost blocat de
+  restrictia Windows a mediului de executie.
 - Logurile brute sunt in .codex-sprint-logs/ si nu sunt versionate.

@@ -5,6 +5,7 @@
 - `impact_tool.py` - aplicatia principala pentru disertatie.
 - `requirements.txt` - dependentele generale.
 - `requirements-impact-tool.txt` - dependentele explicite ale tool-ului nou.
+- `pytest.ini` - colectare limitata la suita sursa, fara exporturi generate.
 - `.env.example` - numele variabilei GEE, fara valoare secreta.
 
 ## Cod principal

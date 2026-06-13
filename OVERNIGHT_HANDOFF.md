@@ -29,6 +29,10 @@ disertatiei, fara secrete sau fisiere generate mari in Git.
 - continutul raportului PDF cu date reale;
 - capturile din `SCREENSHOT_GUIDE.md`.
 
+Capturile automate nu au putut fi create in sesiunea curenta deoarece browserul
+integrat nu a putut porni sub restrictiile Windows. Smoke test-ul HTTP Streamlit
+a trecut; capturile raman o verificare manuala explicita.
+
 ## Comenzi
 
 ```powershell
