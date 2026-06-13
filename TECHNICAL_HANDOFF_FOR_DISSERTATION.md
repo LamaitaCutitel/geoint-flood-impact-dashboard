@@ -2,10 +2,10 @@
 
 ## 1. Scopul documentului
 
-Acest document centralizează exclusiv informații validate tehnic și utile pentru redactarea părții scrise a disertației. Nu conține valori analitice reale ale studiului de caz, deoarece analiza Google Earth Engine completă cu selectarea manuală a scenelor Sentinel-1 nu a fost validată cap-coadă în browser.
+Acest document centralizează exclusiv informații validate tehnic și utile pentru redactarea părții scrise a disertației. Nu include valori finale ale studiului de caz, deoarece analiza Google Earth Engine completă cu selectarea manuală a scenelor Sentinel-1 nu a fost validată cap-coadă în browser.
 
 Branch auditat: `review/dissertation-ready-local-run`  
-Commit auditat: `a4e0837c53a2e42641bf08273eaab43e701ad374`
+Commit auditat: `abe48fb2102ad90c2577f1b33e40d78ddd61ef2f`
 
 ## 2. Starea validată a aplicației
 
@@ -23,9 +23,9 @@ src/impact_tool/ui/shell.py
 
 Dashboard-ul vechi `app.py` este păstrat doar ca instrument experimental și nu reprezintă metodologia principală a disertației.
 
-## 3. Arhitectura validată
+## 3. Arhitectura aplicației
 
-Structura principală a aplicației este modulară:
+Structura principală este modulară:
 
 - `src/impact_tool/ui/` — interfața Streamlit, sidebar, exploratorul scenelor și taburile de rezultate;
 - `src/impact_tool/map/` — harta Folium/Leaflet, layerele, legenda, controalele de navigare și comparatoarele;
@@ -50,7 +50,7 @@ Analiza principală este strictă:
 apă nouă SAR = apă AFTER − apă BEFORE
 ```
 
-Aplicația nu utilizează JRC în metodologia noului tool. Rezultatul este formulat prudent ca produs GEOINT preliminar de suport decizional și nu ca o confirmare oficială din teren.
+Aplicația nu utilizează JRC în metodologia noului tool. Rezultatul trebuie formulat prudent ca produs GEOINT preliminar de suport decizional, nu ca o confirmare oficială din teren.
 
 Utilizatorul poate:
 
@@ -63,14 +63,14 @@ Utilizatorul poate:
 7. confirma perechea;
 8. rula analiza rapidă sau detaliată.
 
-## 5. Exploratorul Sentinel-1 implementat
+## 5. Exploratorul Sentinel-1
 
 Exploratorul temporal este afișat în zona principală a paginii. Sunt implementate:
 
 - căutarea scenelor Sentinel-1;
 - afișarea cronologiei;
 - afișarea scenei curente;
-- thumbnail mare și galerie cu patru carduri pe rând;
+- thumbnail mare și galerie cu mai multe carduri;
 - încărcare progresivă a thumbnail-urilor;
 - cache PNG local cu TTL;
 - selecție manuală `BEFORE` și `AFTER`;
@@ -129,7 +129,7 @@ Rulează:
 - clasificarea impactului OSM;
 - datele necesare raportului extins.
 
-## 8. Dynamic World implementat
+## 8. Dynamic World
 
 Dynamic World este utilizat opțional pentru:
 
@@ -143,7 +143,7 @@ Dynamic World este utilizat opțional pentru:
 
 Selecția observației ține cont de acoperirea AOI-ului și proximitatea temporală. Dacă acoperirea observației individuale este sub `85%`, aplicația utilizează un mozaic fallback. În interfață sunt raportate perioada de căutare, data efectivă, acoperirea și tipul produsului.
 
-## 9. OpenStreetMap implementat
+## 9. OpenStreetMap
 
 Datele OSM sunt încărcate după analiza SAR. Aplicația utilizează cache persistent și indică sursa datelor în interfață.
 
@@ -188,7 +188,7 @@ Scriptul verifică:
 
 Scriptul oprește execuția dacă o categorie este lipsă, incompletă sau invalidă.
 
-## 11. Raport PDF implementat
+## 11. Raport PDF
 
 Raportul PDF este generat local prin ReportLab și salvat în:
 
@@ -245,7 +245,7 @@ Rularea locală documentată a utilizat:
 
 În predarea overnight a fost consemnată rularea a `211` teste pytest.
 
-GitHub Actions a finalizat cu succes jobul `Impact tool CI`, care include:
+GitHub Actions a finalizat cu succes workflow-ul `Impact tool CI`, care include:
 
 - instalarea dependențelor;
 - import curat;
@@ -320,7 +320,17 @@ Lista obligatorie:
 
 Capturile nu trebuie să includă terminalul, fișierul `.env`, credentiale, token-uri sau date personale.
 
-## 17. Reguli pentru redactarea disertației
+## 17. Sprinturi recomandate înainte de folosirea rezultatelor finale în disertație
+
+Sprinturile de mai jos sunt recomandări operaționale, nu rezultate științifice:
+
+1. Validarea manuală a fluxului Galați în browser: preset, cache, selecție scene, comparație, analiză rapidă, analiză detaliată.
+2. Alegerea și notarea scenelor Sentinel-1 finale `BEFORE` și `AFTER`.
+3. Generarea capturilor din `docs/screenshots/dissertation/README.md`.
+4. Generarea și verificarea vizuală a raportului PDF cu rezultate reale.
+5. Transferul în disertație numai al valorilor calculate și verificate manual.
+
+## 18. Reguli pentru redactarea disertației
 
 În partea scrisă sunt recomandate formulările:
 
