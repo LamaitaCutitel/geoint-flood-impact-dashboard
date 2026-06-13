@@ -1,0 +1,10 @@
+[CAPTURĂ NEREALIZATĂ AUTOMAT]
+
+Motiv: raportul PDF final cu rezultate reale nu este disponibil în repository și nu a fost validat vizual.
+
+Pași manuali:
+1. rulează fluxul Galați cap-coadă;
+2. generează raportul PDF;
+3. deschide coperta raportului;
+4. verifică nota privind caracterul preliminar al produsului;
+5. salvează captura `11_raport_pdf_coperta.png`.
