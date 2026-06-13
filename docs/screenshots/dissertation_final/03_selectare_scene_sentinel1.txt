@@ -1,0 +1,10 @@
+[CAPTURĂ NEREALIZATĂ AUTOMAT]
+
+Motiv: scenele Sentinel-1 finale nu au fost selectate și validate manual.
+
+Pași manuali:
+1. pornește aplicația și aplică presetul Galați;
+2. caută scene Sentinel-1;
+3. selectează manual BEFORE și AFTER;
+4. verifică thumbnail-urile și metadatele;
+5. salvează captura `03_selectare_scene_sentinel1.png`.
